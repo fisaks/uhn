@@ -1,0 +1,38 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: uhn-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto:/mosquitto
+    command: [ "mosquitto", "-c", "/mosquitto-no-auth.conf" ]
+
+  # Modbus TCP simulator (we'll build from our small Go sim)
+  mb-sim:
+    build:
+      context: .
+      dockerfile: ./cmd/tools/mb-sim/Dockerfile
+    container_name: mb-sim
+    restart: unless-stopped
+    ports:
+      - "1502:1502"    # Modbus TCP on 1502 to avoid root port 502
+    environment:
+      - MB_LISTEN_ADDR=:1502
+
+  # Edge poller (our Go app)
+  edge:
+    build:
+      context: .
+      dockerfile: ./cmd/server/edge/Dockerfile
+    container_name: uhn-edge
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - mb-sim
+    environment:
+      - MQTT_URL=tcp://mosquitto:1883
+      - MODBUS_TCP_ADDR=mb-sim:1502
+      - POLL_PERIOD_MS=1000
+      - UNIT_ID=1
