@@ -1,0 +1,9 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/edge ./cmd/server/edge"
+bin = "tmp/edge"
+include_ext = ["go","json"]
+exclude_dir = ["tmp", "vendor"]
+pre_cmd = ["jq --arg port \"$EDGE_PORT\" '.buses[0].port = $port' config/edge-config-dev.json > $EDGE_CONFIG_PATH"]

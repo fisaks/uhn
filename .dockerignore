@@ -1,0 +1,13 @@
+.git
+.gitignore
+.vscode
+.idea
+tmp/
+tmp/**
+bin/
+.air
+.air-rtu
+*.log
+*.test
+*.out
+.DS_Store

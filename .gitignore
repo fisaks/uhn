@@ -1,1 +1,31 @@
 .history
+.vscode
+.idea/
+*.swp
+
+# Go
+/bin/
+/tmp/
+/dist/
+/*.exe
+*.test
+*.out
+*.log
+*.prof
+
+# Dependency cache
+vendor/
+
+# Air temporary builds
+tmp/
+.air
+.air-rtu
+
+# Local config overrides 
+*.local.json
+*.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db

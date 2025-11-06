@@ -3,36 +3,51 @@ services:
     image: eclipse-mosquitto:2
     container_name: uhn-mosquitto
     restart: unless-stopped
-    ports:
-      - "1883:1883"
+    ports: ["1883:1883"]
     volumes:
       - ./mosquitto:/mosquitto
-    command: [ "mosquitto", "-c", "/mosquitto-no-auth.conf" ]
+    command: ["mosquitto", "-c", "/mosquitto/mosquitto-no-auth.conf"]
+    profiles: ["dev", "dev-real", "prod", "test"]
 
-  # Modbus TCP simulator (we'll build from our small Go sim)
-  mb-sim:
+  # Dev/Test: edge + simulator in same container using virtual PTYs
+  edge-dev:
     build:
       context: .
-      dockerfile: ./cmd/tools/mb-sim/Dockerfile
-    container_name: mb-sim
-    restart: unless-stopped
-    ports:
-      - "1502:1502"    # Modbus TCP on 1502 to avoid root port 502
+      dockerfile: ./cmd/server/edge/Dockerfile.dev
+    depends_on: [mosquitto]
     environment:
-      - MB_LISTEN_ADDR=:1502
+      - MQTT_URL=tcp://mosquitto:1883
+      - EDGE_NAME=edge-dev-1
+      - EDGE_CONFIG_PATH=/config/edge-config.json
+    profiles: ["dev", "test"]
 
-  # Edge poller (our Go app)
+  # Prod: edge only, talking to a real RS-485 dongle (/dev/ttyUSB0)
   edge:
     build:
       context: .
       dockerfile: ./cmd/server/edge/Dockerfile
-    container_name: uhn-edge
-    restart: unless-stopped
-    depends_on:
-      - mosquitto
-      - mb-sim
+    depends_on: [mosquitto]
     environment:
       - MQTT_URL=tcp://mosquitto:1883
-      - MODBUS_TCP_ADDR=mb-sim:1502
-      - POLL_PERIOD_MS=1000
-      - UNIT_ID=1
+      - EDGE_NAME=edge1
+      - EDGE_CONFIG_PATH=/config/edge-config.json
+    # Pass real serial device through to container
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    # some hosts require privileged to toggle RS-485 RTS
+    # privileged: true
+    profiles: ["prod"]
+
+  # Dev-real: use real device during dev (no simulator), but keep other dev services
+  edge-dev-real:
+    build:
+      context: .
+      dockerfile: ./cmd/server/edge/Dockerfile
+    depends_on: [mosquitto]
+    environment:
+      - MQTT_URL=tcp://mosquitto:1883
+      - EDGE_NAME=edge-dev-real-1
+      - EDGE_CONFIG_PATH=/config/edge-config.json
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    profiles: ["dev-real"]

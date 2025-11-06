@@ -7,9 +7,9 @@ WORKDIR /app/cmd/server/edge
 RUN go build -o /edge
 
 FROM alpine:3.20
-ENV MQTT_URL=tcp://mosquitto:1883
-ENV MODBUS_TCP_ADDR=mb-sim:1502
-ENV POLL_PERIOD_MS=1000
-ENV UNIT_ID=1
+ENV EDGE_CONFIG_PATH=/config/edge-config.json \
+    MQTT_URL=tcp://mosquitto:1883 \
+    EDGE_NAME=edge1
 COPY --from=build /edge /edge
+COPY --from=build /app/config/edge-config-dev.json /config/edge-config-dev.json
 ENTRYPOINT ["/edge"]

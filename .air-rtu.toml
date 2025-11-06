@@ -1,0 +1,12 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/rtu-sim ./cmd/tools/rtu-sim"
+bin = "tmp/rtu-sim"
+
+include_ext = ["go","json"]
+include_dir = ["cmd/tools/rtu-sim", "internal/config","config"]
+exclude_dir = ["tmp", "vendor"]
+pre_cmd = ["jq --arg port \"$SIM_PORT\" '.buses[0].port = $port' config/edge-config-dev.json > $SIM_CONFIG_PATH"]
+

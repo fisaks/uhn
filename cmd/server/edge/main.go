@@ -3,12 +3,13 @@ package main
 // cSpell:ignore mqtt modbusTCP mymqtt modbus
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
-	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/fisaks/uhn/internal/config"
+	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/modbus"
 	mymqtt "github.com/fisaks/uhn/internal/mqtt"
 )
@@ -21,27 +22,56 @@ func getenv(key, def string) string {
 }
 
 func main() {
-	mqttURL := getenv("MQTT_URL", "tcp://localhost:1883")
-	modbusTCP := getenv("MODBUS_TCP_ADDR", "localhost:1502")
-	pollMs, _ := strconv.Atoi(getenv("POLL_PERIOD_MS", "1000"))
-	unitI64, _ := strconv.ParseInt(getenv("UNIT_ID", "1"), 10, 64)
 
-	client := mymqtt.MustConnect(mqttURL, "ihc-edge-"+strconv.FormatInt(time.Now().Unix(), 10))
+	mqttURL := getenv("MQTT_URL", "tcp://localhost:1883")
+	path := getenv("EDGE_CONFIG_PATH", "/etc/uhn/edge-config.json")
+	edgeName := getenv("EDGE_NAME", "edge1")
+	topicPrefix := "uhn/" + edgeName
+
+	logging.Init()
+	cfg, err := config.LoadEdgeConfig(path)
+	if err != nil {
+		logging.Fatal("Edge config error", "error", err)
+	}
+
+	logging.Info("Loaded config",
+		"buses", len(cfg.Buses),
+		"pollMs", cfg.PollIntervalMs,
+	)
+
+	catalog, err := config.BuildEdgeCatalog(cfg)
+	if err != nil {
+		logging.Fatal("Failed to build catalog message", "error", err)
+	}
+
+	client := mymqtt.MustConnect(mqttURL, edgeName, catalog)
 	defer client.Disconnect(250)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	publisher := &modbus.Publisher{Client: client, TopicPrefix: topicPrefix}
 
-	p := modbus.Poller{
-		MQTTCli:     client,
-		TCPAddr:     modbusTCP,
-		Period:      time.Duration(pollMs) * time.Millisecond,
-		UnitID:      byte(unitI64),
-		TopicPrefix: "ihc/edge1",
+	// Build the poller set grouped by bus
+	bp, err := modbus.NewBusPollers(cfg, publisher)
+	if err != nil {
+		logging.Fatal("poller init: %v", err)
 	}
 
-	log.Printf("Starting poller: modbus=%s mqtt=%s", modbusTCP, mqttURL)
-	if err := p.Start(ctx); err != nil {
-		log.Fatalf("poller exited: %v", err)
+	// Graceful shutdown context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start all bus pollers (one goroutine per bus)
+	for _, p := range bp {
+		go p.Run(ctx)
 	}
+
+	// Wait for SIGINT/SIGTERM
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	s := <-sigCh
+	logging.Info("Shutting down", "signal", s)
+
+	// Give pollers a moment to exit cleanly (they honor ctx)
+	cancel()
+	time.Sleep(200 * time.Millisecond)
+	logging.Info("bye")
 }

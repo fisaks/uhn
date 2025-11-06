@@ -1,0 +1,81 @@
+{
+    "buses": [
+        {
+            "busId": "bus_a",
+            "port": "/dev/ttyV0",
+            "type": "rtu",
+            "baud": 19200,
+            "dataBits": 8,
+            "stopBits": 1,
+            "parity": "N",
+            "timeoutMs": 150,
+            "settleBeforeRequestMs": 5,
+            "settleAfterWriteMs": 10
+        }
+    ],
+    "catalog": {
+        "waveshare.io8": {
+            "vendor": "Waveshare",
+            "model": "Modbus RTU IO 8CH",
+            "coils": {
+                "start": 0,
+                "count": 8
+            },
+            "discreteInputs": {
+                "start": 0,
+                "count": 8
+            },
+            "holdingRegisters": null,
+            "inputRegisters": null,
+            "limits": {
+                "maxCoilsPerRead": 2000,
+                "maxInputsPerRead": 2000,
+                "maxRegistersPerRead": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            }
+        },
+        "waveshare.relay8": {
+            "vendor": "Waveshare",
+            "model": "Modbus RTU Relay-B",
+            "coils": {
+                "start": 0,
+                "count": 8
+            },
+            "discreteInputs": null,
+            "holdingRegisters": null,
+            "inputRegisters": null,
+            "limits": {
+                "maxCoilsPerRead": 2000,
+                "maxInputsPerRead": 2000,
+                "maxRegistersPerRead": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 15
+            }
+        }
+    },
+    "devices": {
+        "bus_a": [
+            {
+                "name": "io_kitchen",
+                "unitId": 1,
+                "type": "waveshare.io8",
+                "overrides": {
+                    "timeoutMs": 180
+                }
+            },
+            {
+                "name": "relay_heating",
+                "unitId": 2,
+                "type": "waveshare.relay8"
+            }
+        ]
+    },
+    "pollIntervalMs": 1000
+}
