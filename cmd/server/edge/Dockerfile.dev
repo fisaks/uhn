@@ -12,6 +12,10 @@ RUN go build -o /edge
 WORKDIR /app/cmd/tools/rtu-sim
 RUN go build -o /rtu-sim
 
+WORKDIR /app/cmd/tools/monitor
+RUN go build -o /monitor
+
+
 FROM alpine:3.20
 RUN apk add --no-cache socat jq
 ENV EDGE_CONFIG_PATH=/config/edge-config.json \
@@ -19,6 +23,7 @@ ENV EDGE_CONFIG_PATH=/config/edge-config.json \
     EDGE_NAME=edge1
 COPY --from=build /edge /edge
 COPY --from=build /rtu-sim /rtu-sim
+COPY --from=build /monitor /monitor
 COPY --from=build /app/config/edge-config-dev.json /config/edge-config-dev.json
 COPY cmd/server/edge/dev-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

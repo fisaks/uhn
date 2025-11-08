@@ -69,7 +69,8 @@ start_dev_env() {
     
     # Create tmux session and first pane: MQTT monitor
     tmux new-session -d -s $SESSION -n dev
-    tmux send-keys -t $SESSION.0 "mosquitto_sub -h localhost -t 'uhn/#' -v" C-m
+    #tmux send-keys -t $SESSION.0 "mosquitto_sub -h localhost -t 'uhn/#' -v" C-m
+    tmux send-keys -t $SESSION.0 "go build -o tmp/uhn-monitor ./cmd/tools/monitor && ./tmp/uhn-monitor" C-m
     
     # Split below (75% bottom), top remains MQTT monitor
     tmux split-window -v -t $SESSION.0
@@ -90,6 +91,8 @@ start_dev_env() {
    
     
     # Focus back to edge pane
+    tmux select-pane -t $SESSION.1
+    tmux split-window -h -t $SESSION.1
     tmux select-pane -t $SESSION.2
     
     tmux attach -t $SESSION

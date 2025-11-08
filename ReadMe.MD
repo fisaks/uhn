@@ -42,6 +42,48 @@ To tail messages
 
 To see the base64 binary data as bits `echo AQ== | base64 -d | od -An -t u1`
 
+## Simulator
+
+Rest interface
+
+```sh
+# Get whole device state
+
+curl -s http://localhost:8080/device/{busId}/{device}
+
+# Partial update (PATCH semantics)
+
+curl -s -X PATCH http://localhost:8080/device/{busId}/{device} 
+  -H 'Content-Type: application/json' 
+  -d '{"digitalOutputs":[1,0,0,1],"analogOutputs":[123,456]}'
+
+# Get/set a single digital output
+
+curl -s http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalOutput/{i} 
+  -H 'Content-Type: application/json' -d '{"value":1}'
+
+# Toggle a digital output
+
+curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}/toggle
+
+# Get/set/toggle/press a digital input
+
+curl -s http://localhost:8080/device/{busId}/{device}/digitalInput/{i}
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalInput/{i} 
+  -H 'Content-Type: application/json' -d '{"value":1}'
+curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/toggle
+curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/press/tap
+curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/press/hold1
+curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/press/hold2
+
+# Analog registers
+
+curl -s http://localhost:8080/device/{busId}/{device}/analogOutput/{i}
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/analogOutput/{i}
+  -H 'Content-Type: application/json' -d '{"value":65535}'
+```
+
 ## Navigating the tmux Environment
 
 - **Detach the tmux Session:** Press `Ctrl+b` and then `d` to detach the session while leaving the processes running.

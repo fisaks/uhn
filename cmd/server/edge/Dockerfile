@@ -6,10 +6,15 @@ COPY . .
 WORKDIR /app/cmd/server/edge
 RUN go build -o /edge
 
+WORKDIR /app/cmd/tools/monitor
+RUN go build -o /monitor
+
+
 FROM alpine:3.20
 ENV EDGE_CONFIG_PATH=/config/edge-config.json \
     MQTT_URL=tcp://mosquitto:1883 \
     EDGE_NAME=edge1
 COPY --from=build /edge /edge
+COPY --from=build /monitor /monitor
 COPY --from=build /app/config/edge-config-dev.json /config/edge-config-dev.json
 ENTRYPOINT ["/edge"]

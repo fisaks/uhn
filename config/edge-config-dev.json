@@ -17,16 +17,16 @@
         "waveshare.io8": {
             "vendor": "Waveshare",
             "model": "Modbus RTU IO 8CH",
-            "coils": {
+            "digitalOutputs": {
                 "start": 0,
                 "count": 8
             },
-            "discreteInputs": {
+            "digitalInputs": {
                 "start": 0,
                 "count": 8
             },
-            "holdingRegisters": null,
-            "inputRegisters": null,
+            "analogOutputs": null,
+            "analogInputs": null,
             "limits": {
                 "maxCoilsPerRead": 2000,
                 "maxInputsPerRead": 2000,
@@ -41,13 +41,13 @@
         "waveshare.relay8": {
             "vendor": "Waveshare",
             "model": "Modbus RTU Relay-B",
-            "coils": {
+            "digitalOutputs": {
                 "start": 0,
                 "count": 8
             },
-            "discreteInputs": null,
-            "holdingRegisters": null,
-            "inputRegisters": null,
+            "digitalInputs": null,
+            "analogOutputs": null,
+            "analogInputs": null,
             "limits": {
                 "maxCoilsPerRead": 2000,
                 "maxInputsPerRead": 2000,
@@ -66,9 +66,6 @@
                 "name": "io_kitchen",
                 "unitId": 1,
                 "type": "waveshare.io8",
-                "overrides": {
-                    "timeoutMs": 180
-                }
             },
             {
                 "name": "relay_heating",
@@ -77,5 +74,5 @@
             }
         ]
     },
-    "pollIntervalMs": 1000
+    "pollIntervalMs": 500
 }

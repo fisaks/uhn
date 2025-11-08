@@ -8,10 +8,10 @@ type DeviceSummary struct {
 	Name           string `json:"name"`
 	UnitId         uint8  `json:"unitId"`
 	Type           string `json:"type"`
-	Coils          *Range `json:"coils,omitempty"`
-	DiscreteInputs *Range `json:"discreteInputs,omitempty"`
-	HoldingRegs    *Range `json:"holdingRegisters,omitempty"`
-	InputRegs      *Range `json:"inputRegisters,omitempty"`
+	DigitalOutputs *Range `json:"digitalOutputs,omitempty"`
+	DigitalInputs  *Range `json:"digitalInputs,omitempty"`
+	AnalogOutputs  *Range `json:"analogOutputs,omitempty"`
+	AnalogInputs   *Range `json:"analogInputs,omitempty"`
 }
 
 func BuildEdgeCatalog(cfg *EdgeConfig) (*EdgeCatalogMessage, error) {
@@ -22,10 +22,10 @@ func BuildEdgeCatalog(cfg *EdgeConfig) (*EdgeCatalogMessage, error) {
 				Name:           d.Name,
 				UnitId:         d.UnitId,
 				Type:           d.Type,
-				Coils:          cfg.Catalog[d.Type].Coils,
-				DiscreteInputs: cfg.Catalog[d.Type].DiscreteInputs,
-				HoldingRegs:    cfg.Catalog[d.Type].HoldingRegs,
-				InputRegs:      cfg.Catalog[d.Type].InputRegs,
+				DigitalOutputs: cfg.Catalog[d.Type].DigitalOutputs,
+				DigitalInputs:  cfg.Catalog[d.Type].DigitalInputs,
+				AnalogOutputs:  cfg.Catalog[d.Type].AnalogOutputs,
+				AnalogInputs:   cfg.Catalog[d.Type].AnalogInputs,
 			})
 		}
 	}

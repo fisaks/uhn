@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fisaks/uhn/internal/logging"
 )
 
 /* =========================
@@ -60,26 +62,21 @@ type CatalogTimings struct {
 type CatalogDeviceSpec struct {
 	Vendor         string         `json:"vendor"`
 	Model          string         `json:"model"`
-	Coils          *Range         `json:"coils"`
-	DiscreteInputs *Range         `json:"discreteInputs"`
-	HoldingRegs    *Range         `json:"holdingRegisters"`
-	InputRegs      *Range         `json:"inputRegisters"`
+	DigitalOutputs *Range         `json:"digitalOutputs"`
+	DigitalInputs  *Range         `json:"digitalInputs"`
+	AnalogOutputs  *Range         `json:"analogOutputs"`
+	AnalogInputs   *Range         `json:"analogInputs"`
 	Limits         CatalogLimits  `json:"limits"`
 	Timings        CatalogTimings `json:"timings"`
 	Debug          bool           `json:"debug"`
 }
 
-type DeviceOverrides struct {
-	TimeoutMs *int `json:"timeoutMs,omitempty"`
-}
-
 type DeviceConfig struct {
-	Name       string           `json:"name"`
-	UnitId     uint8            `json:"unitId"`
-	Type       string           `json:"type"` // key in Catalog
-	Overrides  *DeviceOverrides `json:"overrides,omitempty"`
-	Debug      bool             `json:"debug"`
-	RetryCount int              `json:"retryCount,omitempty"`
+	Name       string `json:"name"`
+	UnitId     uint8  `json:"unitId"`
+	Type       string `json:"type"` // key in Catalog
+	Debug      bool   `json:"debug"`
+	RetryCount int    `json:"retryCount,omitempty"`
 }
 
 /* =========================
@@ -187,10 +184,12 @@ func (c *EdgeConfig) Validate() error {
 	if c.PollIntervalMs <= 0 {
 		errs.add("pollIntervalMs must be > 0 (e.g., 100)")
 	}
-	if c.HeartbeatInterval <= 0 {
+	if c.HeartbeatInterval < 0 {
 		c.HeartbeatInterval = 60 // default 60s
 	}
-
+	if c.HeartbeatInterval == 0 {
+		logging.Warn("heartbeatInterval=0 configured, heartbeats disabled")
+	}
 	/* Catalog */
 	if len(c.Catalog) == 0 {
 		errs.add("catalog cannot be empty")
@@ -199,17 +198,17 @@ func (c *EdgeConfig) Validate() error {
 			if spec.Vendor == "" || spec.Model == "" {
 				errs.addf("catalog[%s]: vendor and model are required", key)
 			}
-			if spec.Coils != nil && spec.Coils.Count == 0 {
-				errs.addf("catalog[%s].coils.count must be > 0", key)
+			if spec.DigitalOutputs != nil && spec.DigitalOutputs.Count == 0 {
+				errs.addf("catalog[%s].digitalOutputs.count must be > 0", key)
 			}
-			if spec.DiscreteInputs != nil && spec.DiscreteInputs.Count == 0 {
-				errs.addf("catalog[%s].discreteInputs.count must be > 0", key)
+			if spec.DigitalInputs != nil && spec.DigitalInputs.Count == 0 {
+				errs.addf("catalog[%s].digitalInputs.count must be > 0", key)
 			}
-			if spec.HoldingRegs != nil && spec.HoldingRegs.Count == 0 {
-				errs.addf("catalog[%s].holdingRegisters.count must be > 0", key)
+			if spec.AnalogOutputs != nil && spec.AnalogOutputs.Count == 0 {
+				errs.addf("catalog[%s].analogOutputs.count must be > 0", key)
 			}
-			if spec.InputRegs != nil && spec.InputRegs.Count == 0 {
-				errs.addf("catalog[%s].inputRegisters.count must be > 0", key)
+			if spec.AnalogInputs != nil && spec.AnalogInputs.Count == 0 {
+				errs.addf("catalog[%s].analogInputs.count must be > 0", key)
 			}
 			lim := spec.Limits
 			if lim.MaxCoilsPerRead <= 0 || lim.MaxCoilsPerRead > 2000 {
@@ -267,9 +266,7 @@ func (c *EdgeConfig) Validate() error {
 				} else if _, ok := c.Catalog[d.Type]; !ok {
 					errs.addf("devices[%s][%d/%s]: unknown catalog type %q", busID, i, d.Name, d.Type)
 				}
-				if d.Overrides != nil && d.Overrides.TimeoutMs != nil && *d.Overrides.TimeoutMs <= 0 {
-					errs.addf("devices[%s][%d/%s]: overrides.timeoutMs must be >= 1", busID, i, d.Name)
-				}
+
 			}
 		}
 	}
