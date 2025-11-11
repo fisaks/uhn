@@ -28,14 +28,16 @@
             "analogOutputs": null,
             "analogInputs": null,
             "limits": {
-                "maxCoilsPerRead": 2000,
-                "maxInputsPerRead": 2000,
-                "maxRegistersPerRead": 125
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
             },
             "timings": {
                 "timeoutMs": 150,
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 10
+            },
+            "capabilities": {
+                "toggleWord": 21760
             }
         },
         "waveshare.relay8": {
@@ -49,14 +51,16 @@
             "analogOutputs": null,
             "analogInputs": null,
             "limits": {
-                "maxCoilsPerRead": 2000,
-                "maxInputsPerRead": 2000,
-                "maxRegistersPerRead": 125
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
             },
             "timings": {
                 "timeoutMs": 150,
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 15
+            },
+            "capabilities": {
+                "toggleWord": 21760
             }
         }
     },
@@ -65,7 +69,7 @@
             {
                 "name": "io_kitchen",
                 "unitId": 1,
-                "type": "waveshare.io8",
+                "type": "waveshare.io8"
             },
             {
                 "name": "relay_heating",

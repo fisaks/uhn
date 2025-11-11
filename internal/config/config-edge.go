@@ -21,9 +21,10 @@ import (
 type EdgeConfig struct {
 	Buses             []BusConfig                  `json:"buses"`
 	Catalog           map[string]CatalogDeviceSpec `json:"catalog"`
-	Devices           map[string][]DeviceConfig    `json:"devices"`           // key = busId
-	PollIntervalMs    int                          `json:"pollIntervalMs"`    // global poll cadence
-	HeartbeatInterval int                          `json:"heartbeatInterval"` // global heartbeat cadence
+	Devices           map[string][]DeviceConfig    `json:"devices"`                     // key = busId
+	PollIntervalMs    int                          `json:"pollIntervalMs"`              // global poll cadence
+	HeartbeatInterval int                          `json:"heartbeatInterval,omitempty"` // global heartbeat cadence
+	CommandBufferSize int                          `json:"commandBufferSize,omitempty"`
 }
 
 type BusConfig struct {
@@ -48,17 +49,19 @@ type Range struct {
 }
 
 type CatalogLimits struct {
-	MaxCoilsPerRead     int `json:"maxCoilsPerRead"`
-	MaxInputsPerRead    int `json:"maxInputsPerRead"`
-	MaxRegistersPerRead int `json:"maxRegistersPerRead"`
+	MaxDigitalChunkSize uint16 `json:"maxDigitalChunkSize"`
+	MaxAnalogChunkSize  uint16 `json:"maxAnalogChunkSize"`
 }
 
 type CatalogTimings struct {
-	TimeoutMs             int `json:"timeoutMs"`
-	SettleBeforeRequestMs int `json:"settleBeforeRequestMs"`
-	SettleAfterWriteMs    int `json:"settleAfterWriteMs"`
+	TimeoutMs             uint16 `json:"timeoutMs"`
+	SettleBeforeRequestMs uint16 `json:"settleBeforeRequestMs"`
+	SettleAfterWriteMs    uint16 `json:"settleAfterWriteMs"`
 }
 
+type Capabilities struct {
+	ToggleWord uint16 `json:"toggleWord,omitempty"`
+}
 type CatalogDeviceSpec struct {
 	Vendor         string         `json:"vendor"`
 	Model          string         `json:"model"`
@@ -69,6 +72,7 @@ type CatalogDeviceSpec struct {
 	Limits         CatalogLimits  `json:"limits"`
 	Timings        CatalogTimings `json:"timings"`
 	Debug          bool           `json:"debug"`
+	Capabilities   Capabilities   `json:"capabilities,omitempty"`
 }
 
 type DeviceConfig struct {
@@ -76,7 +80,7 @@ type DeviceConfig struct {
 	UnitId     uint8  `json:"unitId"`
 	Type       string `json:"type"` // key in Catalog
 	Debug      bool   `json:"debug"`
-	RetryCount int    `json:"retryCount,omitempty"`
+	RetryCount uint8  `json:"retryCount,omitempty"`
 }
 
 /* =========================
@@ -128,13 +132,17 @@ func LoadEdgeConfig(path string) (*EdgeConfig, error) {
 func (c *EdgeConfig) Validate() error {
 	var errs multiErr
 
+	/* Poll */
+	if c.PollIntervalMs <= 0 {
+		c.PollIntervalMs = 500 // default 500ms
+	}
 	/* Buses */
 	if len(c.Buses) == 0 {
 		errs.add("buses cannot be empty")
 	} else {
 		seen := map[string]int{}
 		for i := range c.Buses {
-			b := &c.Buses[i]
+			b := c.Buses[i]
 			if strings.TrimSpace(b.BusId) == "" {
 				errs.addf("buses[%d]: busId is required", i)
 			} else if j, ok := seen[b.BusId]; ok {
@@ -177,18 +185,21 @@ func (c *EdgeConfig) Validate() error {
 			if b.SettleBeforeRequestMs < 0 || b.SettleAfterWriteMs < 0 {
 				errs.addf("buses[%d/%s]: settle timings cannot be negative", i, b.BusId)
 			}
+			if b.PollIntervalMs <= 0 {
+				b.PollIntervalMs = c.PollIntervalMs
+			}
+			 c.Buses[i] = b
 		}
 	}
 
-	/* Poll */
-	if c.PollIntervalMs <= 0 {
-		errs.add("pollIntervalMs must be > 0 (e.g., 100)")
-	}
 	if c.HeartbeatInterval < 0 {
 		c.HeartbeatInterval = 60 // default 60s
 	}
 	if c.HeartbeatInterval == 0 {
 		logging.Warn("heartbeatInterval=0 configured, heartbeats disabled")
+	}
+	if c.CommandBufferSize <= 0 {
+		c.CommandBufferSize = 64 // default buffer size
 	}
 	/* Catalog */
 	if len(c.Catalog) == 0 {
@@ -210,19 +221,18 @@ func (c *EdgeConfig) Validate() error {
 			if spec.AnalogInputs != nil && spec.AnalogInputs.Count == 0 {
 				errs.addf("catalog[%s].analogInputs.count must be > 0", key)
 			}
-			lim := spec.Limits
-			if lim.MaxCoilsPerRead <= 0 || lim.MaxCoilsPerRead > 2000 {
-				errs.addf("catalog[%s].limits.maxCoilsPerRead must be 1..2000", key)
+
+			if spec.Limits.MaxDigitalChunkSize <= 0 || spec.Limits.MaxDigitalChunkSize > 2000 {
+				spec.Limits.MaxDigitalChunkSize = 2000
 			}
-			if lim.MaxInputsPerRead <= 0 || lim.MaxInputsPerRead > 2000 {
-				errs.addf("catalog[%s].limits.maxInputsPerRead must be 1..2000", key)
+			if spec.Limits.MaxAnalogChunkSize <= 0 || spec.Limits.MaxAnalogChunkSize > 125 {
+				spec.Limits.MaxAnalogChunkSize = 125
 			}
-			if lim.MaxRegistersPerRead <= 0 || lim.MaxRegistersPerRead > 125 {
-				errs.addf("catalog[%s].limits.maxRegistersPerRead must be 1..125", key)
-			}
+
 			if spec.Timings.SettleBeforeRequestMs < 0 || spec.Timings.SettleAfterWriteMs < 0 {
 				errs.addf("catalog[%s].settle timings values cannot be negative", key)
 			}
+			c.Catalog[key] = spec
 		}
 	}
 
@@ -253,6 +263,7 @@ func (c *EdgeConfig) Validate() error {
 				if strings.TrimSpace(d.Name) == "" {
 					errs.addf("devices[%s][%d]: name is required", busID, i)
 				} else if otherBus, clash := seenNames[d.Name]; clash {
+
 					errs.addf("devices[%s][%d/%s]: duplicate device name (already in bus %s)", busID, i, d.Name, otherBus)
 				} else {
 					seenNames[d.Name] = busID

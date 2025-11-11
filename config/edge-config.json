@@ -17,41 +17,42 @@
         "waveshare.io8": {
             "vendor": "Waveshare",
             "model": "Modbus RTU IO 8CH",
-            "coils": {
+            "digitalOutputs": {
                 "start": 0,
                 "count": 8
             },
-            "discreteInputs": {
+            "digitalInputs": {
                 "start": 0,
                 "count": 8
             },
-            "holdingRegisters": null,
-            "inputRegisters": null,
+            "analogOutputs": null,
+            "analogInputs": null,
             "limits": {
-                "maxCoilsPerRead": 2000,
-                "maxInputsPerRead": 2000,
-                "maxRegistersPerRead": 125
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
             },
             "timings": {
                 "timeoutMs": 150,
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 10
+            },
+            "capabilities": {
+                "toggleWord": 21760
             }
         },
         "waveshare.relay8": {
             "vendor": "Waveshare",
             "model": "Modbus RTU Relay-B",
-            "coils": {
+            "digitalOutputs": {
                 "start": 0,
                 "count": 8
             },
-            "discreteInputs": null,
-            "holdingRegisters": null,
-            "inputRegisters": null,
+            "digitalInputs": null,
+            "analogOutputs": null,
+            "analogInputs": null,
             "limits": {
-                "maxCoilsPerRead": 2000,
-                "maxInputsPerRead": 2000,
-                "maxRegistersPerRead": 125
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
             },
             "timings": {
                 "timeoutMs": 150,
@@ -64,48 +65,13 @@
         "bus_a": [
             {
                 "name": "io_kitchen",
-                "bus": "bus_a",
                 "unitId": 1,
-                "type": "waveshare.io8",
-                "coilNames": [
-                    "Light Main",
-                    "Fan",
-                    "Heater",
-                    null,
-                    null,
-                    "Socket",
-                    null,
-                    null
-                ],
-                "inputNames": [
-                    "PIR Sensor",
-                    "Door Sensor",
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                ],
-                "overrides": {
-                    "timeoutMs": 180
-                }
+                "type": "waveshare.io8"
             },
             {
                 "name": "relay_heating",
-                "bus": "bus_a",
                 "unitId": 2,
-                "type": "waveshare.relay8",
-                "coilNames": [
-                    "Light Main",
-                    null,
-                    "Socket B",
-                    null,
-                    null,
-                    "Socket A",
-                    null,
-                    null
-                ]
+                "type": "waveshare.relay8"
             }
         ]
     },
