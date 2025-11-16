@@ -9,6 +9,9 @@ RUN go build -o /edge
 WORKDIR /app/cmd/tools/monitor
 RUN go build -o /monitor
 
+WORKDIR /app/cmd/tools/uhnctl
+RUN go build -o /uhnctl
+
 
 FROM alpine:3.20
 ENV EDGE_CONFIG_PATH=/config/edge-config.json \
@@ -16,5 +19,6 @@ ENV EDGE_CONFIG_PATH=/config/edge-config.json \
     EDGE_NAME=edge1
 COPY --from=build /edge /edge
 COPY --from=build /monitor /monitor
+COPY --from=build /uhnctl /uhnctl
 COPY --from=build /app/config/edge-config-dev.json /config/edge-config-dev.json
 ENTRYPOINT ["/edge"]

@@ -4,6 +4,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strings"
 )
 
 var Logger *slog.Logger
@@ -11,6 +12,16 @@ var Logger *slog.Logger
 func Init() {
 	level := new(slog.LevelVar) // dynamic level if we ever want to adjust it
 
+	switch strings.ToLower(os.Getenv("UHN_LOG_LEVEL")) {
+	case "debug":
+		level.Set(slog.LevelDebug)
+	case "warn":
+		level.Set(slog.LevelWarn)
+	case "error":
+		level.Set(slog.LevelError)
+	default:
+		level.Set(slog.LevelInfo)
+	}
 	var handler slog.Handler
 	if os.Getenv("LOG_FORMAT") == "text" {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
@@ -44,7 +55,6 @@ func (w slogWriter) Write(p []byte) (int, error) {
 func WrapSlog(args ...any) *log.Logger {
 	return log.New(slogWriter{Logger.With(args...)}, "", 0)
 }
-
 
 func Info(msg string, args ...any)  { Logger.Info(msg, args...) }
 func Error(msg string, args ...any) { Logger.Error(msg, args...) }

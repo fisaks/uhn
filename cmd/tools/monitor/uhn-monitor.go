@@ -14,7 +14,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/fisaks/uhn/internal/config"
+	"github.com/fisaks/uhn/internal/catalog"
 )
 
 type DeviceInfo struct {
@@ -27,7 +27,7 @@ type DeviceInfo struct {
 var deviceMap = map[string]DeviceInfo{}
 
 func readCatalogMessage(payload []byte) (string, error) {
-	var catalogMsg config.EdgeCatalogMessage
+	var catalogMsg catalog.EdgeCatalogMessage
 
 	// ... in message handler for uhn/catalog/* ...
 	if err := json.Unmarshal(payload, &catalogMsg); err == nil {
@@ -58,21 +58,17 @@ func decodeBitsField(field string, count uint16) string {
 	if err != nil {
 		return fmt.Sprintf("(base64 error: %v)", err)
 	}
-	bits := make([]byte, 0, count)
+	bits := make([]byte, count)
 	bitIdx := 0
 	for _, b := range raw {
 		for bitPosition := 0; bitPosition < 8 && bitIdx < int(count); bitPosition++ {
 			if b&(1<<uint(bitPosition)) != 0 {
-				bits = append(bits, '1')
+				bits[int(count)-1-bitIdx] = '1'
 			} else {
-				bits = append(bits, '0')
+				bits[int(count)-1-bitIdx] = '0'
 			}
 			bitIdx++
 		}
-	}
-	// pad if needed (should not be necessary, but just in case)
-	for len(bits) < int(count) {
-		bits = append(bits, '0')
 	}
 	return string(bits)
 }
@@ -140,7 +136,7 @@ func main() {
 	opts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
 		topic := msg.Topic()
-		if strings.HasPrefix(topic, "uhn/catalog/") {
+		if strings.HasSuffix(topic, "catalog") {
 			line, err := readCatalogMessage(payload)
 			if err != nil {
 				fmt.Printf("%s %s (error: %v)\n", topic, string(payload), err)

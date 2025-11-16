@@ -35,12 +35,12 @@ func StartRTUSim(edgeConfig *config.EdgeConfig) error {
 		if bus.Type != "rtu" {
 			continue
 		}
-		go runBusSimulator(bus, edgeConfig.Devices[bus.BusId], edgeConfig.Catalog)
+		go runBusSimulator(bus, edgeConfig.Devices[bus.BusId])
 	}
 	return nil
 }
 
-func runBusSimulator(bus config.BusConfig, devices []config.DeviceConfig, Catalog map[string]config.CatalogDeviceSpec) {
+func runBusSimulator(bus *config.BusConfig, devices []*config.DeviceConfig) {
 	s := mbserver.NewServer()
 	simulatorsMu.Lock()
 	simulators[bus.BusId] = s
@@ -54,22 +54,22 @@ func runBusSimulator(bus config.BusConfig, devices []config.DeviceConfig, Catalo
 				log.Fatalf("NewDevice(%d): %v", id, err)
 			}
 		}
-		catalogDev := Catalog[device.Type]
+
 		simDevConfig := &SimDeviceConfig{
 			Name:   device.Name,
 			UnitID: uint8(device.UnitId),
 		}
-		if catalogDev.DigitalOutputs != nil {
-			simDevConfig.DigitalOutputs = catalogDev.DigitalOutputs.Count
+		if device.CatalogSpec.DigitalOutputs != nil {
+			simDevConfig.DigitalOutputs = device.CatalogSpec.DigitalOutputs.Count
 		}
-		if catalogDev.DigitalInputs != nil {
-			simDevConfig.DigitalInputs = catalogDev.DigitalInputs.Count
+		if device.CatalogSpec.DigitalInputs != nil {
+			simDevConfig.DigitalInputs = device.CatalogSpec.DigitalInputs.Count
 		}
-		if catalogDev.AnalogOutputs != nil {
-			simDevConfig.AnalogOutputs = catalogDev.AnalogOutputs.Count
+		if device.CatalogSpec.AnalogOutputs != nil {
+			simDevConfig.AnalogOutputs = device.CatalogSpec.AnalogOutputs.Count
 		}
-		if catalogDev.AnalogInputs != nil {
-			simDevConfig.AnalogInputs = catalogDev.AnalogInputs.Count
+		if device.CatalogSpec.AnalogInputs != nil {
+			simDevConfig.AnalogInputs = device.CatalogSpec.AnalogInputs.Count
 		}
 		deviceConfigs[device.Name] = simDevConfig
 
@@ -91,7 +91,10 @@ func runBusSimulator(bus config.BusConfig, devices []config.DeviceConfig, Catalo
 	if err := s.ListenRTU(port); err != nil {
 		log.Fatalf("listenRTU: %v", err)
 	}
-	log.Printf("RTU simulator ready on %s for bus %s (devices: %v)", bus.Port, bus.BusId, devices)
+	log.Printf("RTU simulator ready on %s for bus %s (devices: %d)", bus.Port, bus.BusId, len(devices))
+	for _, device := range devices {
+		log.Printf("  - %s (UnitID: %d)", device.Name, device.UnitId)
+	}
 	for {
 		time.Sleep(1 * time.Second)
 	}

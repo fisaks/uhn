@@ -18,9 +18,10 @@ install-tools:
 
 	@echo "🔧 Installing Go tools from go.mod..."
 	go install github.com/air-verse/air@$(shell go list -m -f '{{.Version}}' github.com/air-verse/air)
-
-	@echo "✅ All tools installed!"
+	go install github.com/go-delve/delve/cmd/dlv@$(shell go list -m -f '{{.Version}}' github.com/go-delve/delve)
 	
+	@echo "✅ All tools installed!"	
+																
 
 dev:
 	./devserver.sh start
@@ -36,4 +37,8 @@ docker-dev-real:
 
 docker-build:
 	docker compose --profile prod build
+
+build-uhn-tools:
+	go build -o bin/uhnctl ./cmd/tools/uhnctl
+	go build -o bin/uhn-monitor ./cmd/tools/monitor/uhn-monitor.go
 

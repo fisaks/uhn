@@ -19,12 +19,12 @@ import (
    ========================= */
 
 type EdgeConfig struct {
-	Buses             []BusConfig                  `json:"buses"`
-	Catalog           map[string]CatalogDeviceSpec `json:"catalog"`
-	Devices           map[string][]DeviceConfig    `json:"devices"`                     // key = busId
-	PollIntervalMs    int                          `json:"pollIntervalMs"`              // global poll cadence
-	HeartbeatInterval int                          `json:"heartbeatInterval,omitempty"` // global heartbeat cadence
-	CommandBufferSize int                          `json:"commandBufferSize,omitempty"`
+	Buses             []*BusConfig                  `json:"buses"`
+	Catalog           map[string]*CatalogDeviceSpec `json:"catalog"`
+	Devices           map[string][]*DeviceConfig    `json:"devices"`                     // key = busId
+	PollIntervalMs    int                           `json:"pollIntervalMs"`              // global poll cadence
+	HeartbeatInterval int                           `json:"heartbeatInterval,omitempty"` // global heartbeat cadence
+	CommandBufferSize int                           `json:"commandBufferSize,omitempty"`
 }
 
 type BusConfig struct {
@@ -39,8 +39,12 @@ type BusConfig struct {
 	TimeoutMs             int    `json:"timeoutMs"`
 	SettleBeforeRequestMs int    `json:"settleBeforeRequestMs"`
 	SettleAfterWriteMs    int    `json:"settleAfterWriteMs"`
-	PollIntervalMs        int    `json:"pollIntervalMs"` // global poll cadence
-	Debug                 bool   `json:"debug"`
+	PollIntervalMs        int    `json:"pollIntervalMs"`
+
+	CommandBufferSize int  `json:"commandBufferSize,omitempty"`
+	Debug             bool `json:"debug"`
+
+	Devices []*DeviceConfig // runtime only
 }
 
 type Range struct {
@@ -76,11 +80,13 @@ type CatalogDeviceSpec struct {
 }
 
 type DeviceConfig struct {
-	Name       string `json:"name"`
-	UnitId     uint8  `json:"unitId"`
-	Type       string `json:"type"` // key in Catalog
-	Debug      bool   `json:"debug"`
-	RetryCount uint8  `json:"retryCount,omitempty"`
+	Name        string             `json:"name"`
+	UnitId      uint8              `json:"unitId"`
+	Type        string             `json:"type"` // key in Catalog
+	Debug       bool               `json:"debug"`
+	RetryCount  uint8              `json:"retryCount,omitempty"`
+	CatalogSpec *CatalogDeviceSpec // runtime only
+	Bus         *BusConfig         // runtime only
 }
 
 /* =========================
@@ -136,6 +142,17 @@ func (c *EdgeConfig) Validate() error {
 	if c.PollIntervalMs <= 0 {
 		c.PollIntervalMs = 500 // default 500ms
 	}
+	if c.HeartbeatInterval < 0 {
+		c.HeartbeatInterval = 60 // default 60s
+	}
+	if c.HeartbeatInterval == 0 {
+		logging.Warn("heartbeatInterval=0 configured, heartbeats disabled")
+	}
+
+	if c.CommandBufferSize <= 0 {
+		c.CommandBufferSize = 64 // default buffer size
+	}
+
 	/* Buses */
 	if len(c.Buses) == 0 {
 		errs.add("buses cannot be empty")
@@ -188,19 +205,14 @@ func (c *EdgeConfig) Validate() error {
 			if b.PollIntervalMs <= 0 {
 				b.PollIntervalMs = c.PollIntervalMs
 			}
-			 c.Buses[i] = b
+			if b.CommandBufferSize <= 0 {
+				b.CommandBufferSize = c.CommandBufferSize
+			}
+
+			c.Buses[i] = b
 		}
 	}
 
-	if c.HeartbeatInterval < 0 {
-		c.HeartbeatInterval = 60 // default 60s
-	}
-	if c.HeartbeatInterval == 0 {
-		logging.Warn("heartbeatInterval=0 configured, heartbeats disabled")
-	}
-	if c.CommandBufferSize <= 0 {
-		c.CommandBufferSize = 64 // default buffer size
-	}
 	/* Catalog */
 	if len(c.Catalog) == 0 {
 		errs.add("catalog cannot be empty")
@@ -229,9 +241,6 @@ func (c *EdgeConfig) Validate() error {
 				spec.Limits.MaxAnalogChunkSize = 125
 			}
 
-			if spec.Timings.SettleBeforeRequestMs < 0 || spec.Timings.SettleAfterWriteMs < 0 {
-				errs.addf("catalog[%s].settle timings values cannot be negative", key)
-			}
 			c.Catalog[key] = spec
 		}
 	}
@@ -284,6 +293,34 @@ func (c *EdgeConfig) Validate() error {
 
 	if len(errs) > 0 {
 		return errs
+	}
+
+	return c.linkGraph()
+}
+func (c *EdgeConfig) linkGraph() error {
+	// Map for quick bus lookup
+	busMap := map[string]*BusConfig{}
+	for _, b := range c.Buses {
+		busMap[b.BusId] = b
+		b.Devices = nil // ensure empty
+	}
+	// Link devices to catalog, and buses to devices
+	for busID, devs := range c.Devices {
+		bus, ok := busMap[busID]
+		if !ok {
+			return fmt.Errorf("bus %q not found", busID)
+		}
+		for _, dev := range devs {
+			// Wire device <-> catalog
+			spec := c.Catalog[dev.Type]
+			if spec == nil {
+				return fmt.Errorf("unknown device type %q for device %q", dev.Type, dev.Name)
+			}
+			dev.CatalogSpec = spec
+			dev.Bus = bus
+			// Wire bus <-> device
+			bus.Devices = append(bus.Devices, dev)
+		}
 	}
 	return nil
 }

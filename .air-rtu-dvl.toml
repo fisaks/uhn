@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = 'CGO_ENABLED=0 go build -gcflags=all="-N -l" -o tmp/rtu-sim ./cmd/tools/rtu-sim'
+full_bin = "dlv exec tmp/rtu-sim --listen=127.0.0.1:2346 --headless=true --api-version=2 --accept-multiclient --continue --log --"
+bin = "tmp/rtu-sim"
+
+include_ext = ["go","json"]
+include_dir = ["cmd/tools/rtu-sim", "internal/config","config"]
+exclude_dir = ["tmp", "vendor"]
+pre_cmd = ["jq --arg port \"$SIM_PORT\" '.buses[0].port = $port' config/edge-config-dev.json > $SIM_CONFIG_PATH"]
+

@@ -7,12 +7,23 @@ print_usage() {
     echo "Usage: $0 {start|stop}"
     echo "Commands:"
     echo "  start   Start the dev server in tmux"
+    echo "  debug   Start dev server with headless dlv "
     echo "  stop    Stop the dev server"
 }
 
 start_dev_env() {
     echo "🔧 Starting development environment in tmux session '$SESSION'..."
     
+    local debug="${1:-false}"   # default false
+    if [[ "$debug" == "true" ]]; then
+        echo "running in debug hot reload mode"
+        EDGE_AIR_FILE=".air-dvl.toml"
+        RTU_SIM_AIR_FILE=".air-rtu-dvl.toml"
+    else
+        echo "running in hot reload mode"
+        EDGE_AIR_FILE=".air.toml"
+        RTU_SIM_AIR_FILE=".air-rtu.toml"
+    fi
     # Start Mosquitto container before anything else
     if ! docker ps --format '{{.Names}}' | grep -q '^uhn-mosquitto$$'; then
         echo "🐳 Starting Mosquitto via Docker Compose..."
@@ -83,11 +94,11 @@ start_dev_env() {
     
     
     # Pane 1: Edge server via air
-    tmux send-keys -t $SESSION.2 "cd $WORKDIR && air -c .air.toml" C-m
+    tmux send-keys -t $SESSION.2 "cd $WORKDIR && air -c $EDGE_AIR_FILE" C-m
     
     # Split Pane 1 horizontally → Pane 2: RTU simulator
     tmux split-window -h -t $SESSION.2
-    tmux send-keys -t $SESSION.3 "cd $WORKDIR && air -c .air-rtu.toml" C-m
+    tmux send-keys -t $SESSION.3 "cd $WORKDIR && air -c $RTU_SIM_AIR_FILE" C-m
    
     
     # Focus back to edge pane
@@ -111,7 +122,10 @@ stop_dev_env() {
 
 case "$1" in
     start )
-        start_dev_env
+        start_dev_env false
+    ;;
+    debug )
+        start_dev_env   true
     ;;
     stop )
         stop_dev_env

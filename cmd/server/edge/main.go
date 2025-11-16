@@ -3,18 +3,16 @@ package main
 // cSpell:ignore mqtt modbusTCP mymqtt modbus
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/fisaks/uhn/internal/catalog"
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
-	"github.com/fisaks/uhn/internal/modbus"
-	mymqtt "github.com/fisaks/uhn/internal/mqtt"
+	"github.com/fisaks/uhn/internal/messaging"
+	"github.com/fisaks/uhn/internal/poller"
 )
 
 func getenv(key, def string) string {
@@ -41,70 +39,32 @@ func main() {
 		"buses", len(cfg.Buses),
 		"pollMs", cfg.PollIntervalMs,
 	)
-
-	catalog, err := config.BuildEdgeCatalog(cfg)
-	if err != nil {
-		logging.Fatal("Failed to build catalog message", "error", err)
-	}
-
-	client := mymqtt.MustConnect(mqttURL, edgeName, catalog)
-	defer client.Disconnect(250)
-
-	publisher := &modbus.Publisher{Client: client, TopicPrefix: topicPrefix}
-
-	// Build the poller set grouped by bus
-	pollers, err := modbus.NewBusPollers(cfg, publisher)
-	if err != nil {
-		logging.Fatal("poller init: %v", err)
-	}
-
+	catalog := catalog.NewEdgeCatalog(cfg)
 	// Graceful shutdown context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	edgeBroker := messaging.NewEdgeBroker(messaging.BrokerConfig{
+		BrokerURL:        mqttURL,
+		ClientName:       edgeName,
+		TopicPrefix:      topicPrefix,
+		ConnectTimeout:   10 * time.Second,
+		PublishTimeout:   5 * time.Second,
+		SubscribeTimeout: 5 * time.Second,
+	}, catalog, time.Duration(cfg.HeartbeatInterval)*time.Second)
+
+	edgeBroker.Connect(ctx)
+	defer edgeBroker.Close(ctx)
+
+	pollers, err := poller.NewBusPollers(cfg, edgeBroker)
+	if err != nil {
+		logging.Fatal("poller init: %v", err)
+	}
+	edgeBroker.StartEdgeSubscriber(ctx, pollers)
+
 	// Start all bus pollers (one goroutine per bus)
-	for _, p := range pollers {
-		go p.Run(ctx)
-	}
-
-	cmdTopic := topicPrefix + "/device/+/cmd"
-	if token := client.Subscribe(cmdTopic, 1, func(_ mqtt.Client, message mqtt.Message) {
-		// Parse device name from topic
-		parts := strings.Split(message.Topic(), "/")
-		// uhn/<edge>/device/<deviceName>/cmd
-		if len(parts) < 5 {
-			logging.Warn("cmd topic malformed", "topic", message.Topic())
-			return
-		}
-		deviceName := parts[3]
-
-		var inCommand modbus.IncomingDeviceCommand
-		if err := json.Unmarshal(message.Payload(), &inCommand); err != nil {
-			logging.Warn("cmd json", "error", err)
-			return
-		}
-		inCommand.Device = deviceName
-
-		poller, dc, err := modbus.ResolveIncoming(pollers, inCommand, deviceName)
-		if err != nil {
-			modbus.PublishEvent(client, topicPrefix, deviceName, "commandError",
-				map[string]any{"reason": "device not found", "device": deviceName})
-			return
-		}
-
-		// Optional: validate address against catalog ranges (if you want)
-		// (owner.Catalog[device.Type].DigitalOutputs, etc.)
-
-		// Enqueue without blocking; drop if queue full
-		select {
-		case poller.CmdCh() <- *dc: // alternative: we have owner from ResolveIncoming? see note below
-		default:
-			modbus.PublishEvent(client, topicPrefix, deviceName, "commandDropped",
-				map[string]any{"reason": "queue full", "action": dc.Action})
-		}
-	}); token.Wait() && token.Error() != nil {
-		logging.Fatal("mqtt subscribe cmd", "error", token.Error())
-	}
+	pollers.StartAllPollers(ctx)
+	defer pollers.StopAllPollers()
 
 	// Wait for SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)

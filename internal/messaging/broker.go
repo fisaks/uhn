@@ -12,27 +12,40 @@ import (
 	"github.com/fisaks/uhn/internal/logging"
 )
 
-type BrokerConfig struct {
-	BrokerURL         string
-	ClientName        string
-	TopicPrefix       string
-	ConnectTimeout    time.Duration
-	PublishTimeout    time.Duration
-	SubscribeTimeout  time.Duration
-	CommandBufferSize int
+type QoS byte
+
+const (
+	AtMostOnce    QoS = 0
+	FireAndForget QoS = 0
+	AtLeastOnce   QoS = 1
+	ExactlyOnce   QoS = 2
+	AsyncNoWait   QoS = 3 // not a real QoS, will switch to 0 on publish but not wait on returned token
+)
+
+// Subscription is returned when you Subscribe you can Unsubscribe later.
+type Subscription interface {
+	Unsubscribe(ctx context.Context) error
 }
 
-type MsgBroker struct {
-	config         BrokerConfig
-	client         mqtt.Client
-	mu             sync.RWMutex
-	subs           map[string]mqtt.Token
-	onConnectFuncs map[string]OnConnectPublisher
-}
+type Broker interface {
+	Connect(ctx context.Context) error
+	Close(ctx context.Context) error
 
-type PublishRequest struct {
-	// If Context is nil, context.Background() is used
-	Context      context.Context
+	Publish(ctx context.Context, topic string, qos QoS, retain bool, payload []byte) error
+	PublishJSON(ctx context.Context, topic string, qos QoS, retain bool, v interface{}) error
+
+	Subscribe(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
+	IsConnected() bool
+	AddOnConnectPublisher(id string, publisher OnConnectPublisher)
+	RemoveOnConnectPublisher(id string)
+}
+type OnConnectPublisher interface {
+	OnConnectPublish(ctx context.Context) (*ConnectMessage, error)
+}
+type Subscriber interface {
+	OnMessage(ctx context.Context, topic string, payload []byte)
+}
+type ConnectMessage struct {
 	Topic        string
 	Qos          QoS
 	Retain       bool
@@ -40,13 +53,28 @@ type PublishRequest struct {
 	Payload      interface{}
 }
 
-type OnConnectPublisher func() (PublishRequest, error)
+type BrokerConfig struct {
+	BrokerURL        string
+	ClientName       string
+	TopicPrefix      string
+	ConnectTimeout   time.Duration
+	PublishTimeout   time.Duration
+	SubscribeTimeout time.Duration
+}
 
-func NewMsgBroker(cfg BrokerConfig) *MsgBroker {
+type MsgBroker struct {
+	config              BrokerConfig
+	client              mqtt.Client
+	mu                  sync.RWMutex
+	subs                map[string]mqtt.Token
+	onConnectPublishers map[string]OnConnectPublisher
+}
+
+func NewBroker(cfg BrokerConfig) Broker {
 	return &MsgBroker{
-		config:         cfg,
-		subs:           make(map[string]mqtt.Token),
-		onConnectFuncs: make(map[string]OnConnectPublisher),
+		config:              cfg,
+		subs:                make(map[string]mqtt.Token),
+		onConnectPublishers: make(map[string]OnConnectPublisher),
 	}
 }
 
@@ -78,6 +106,7 @@ func (b *MsgBroker) Connect(ctx context.Context) error {
 func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	opts := mqtt.NewClientOptions().AddBroker(b.config.BrokerURL)
 	opts.SetClientID("uhn-" + b.config.ClientName)
+	opts.SetConnectTimeout(b.config.ConnectTimeout)
 	opts.SetAutoReconnect(true)
 	opts.OnConnect = func(c mqtt.Client) {
 		b.onConnectPublisher()
@@ -85,36 +114,35 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	return opts
 }
 
-func (b *MsgBroker) AddOnConnectPublisher(id string, fn OnConnectPublisher) {
+func (b *MsgBroker) AddOnConnectPublisher(id string, publisher OnConnectPublisher) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.onConnectFuncs[id] = fn
+	b.onConnectPublishers[id] = publisher
 }
 
 func (b *MsgBroker) RemoveOnConnectPublisher(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	delete(b.onConnectFuncs, id)
+	delete(b.onConnectPublishers, id)
 }
 
 func (b *MsgBroker) onConnectPublisher() {
 	b.mu.RLock()
-	funcsCopy := make(map[string]OnConnectPublisher, len(b.onConnectFuncs))
-	for k, v := range b.onConnectFuncs {
-		funcsCopy[k] = v
+	publisherCopy := make(map[string]OnConnectPublisher, len(b.onConnectPublishers))
+	for k, v := range b.onConnectPublishers {
+		publisherCopy[k] = v
 	}
 	b.mu.RUnlock()
 
-	for id, fn := range funcsCopy {
-		req, err := fn()
+	ctx := context.Background()
+
+	for id, publisher := range publisherCopy {
+		req, err := publisher.OnConnectPublish(ctx)
 		if err != nil {
 			logging.Error("onConnectPublisher failed", "clientName", b.config.ClientName, "id", id, "error", err)
 			continue
 		}
-		ctx := req.Context
-		if ctx == nil {
-			ctx = context.Background()
-		}
+
 		var pubErr error
 		if req.PayloadBytes == nil {
 			pubErr = b.PublishJSON(ctx, req.Topic, req.Qos, req.Retain, req.Payload)
@@ -154,13 +182,24 @@ func (b *MsgBroker) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+func (b *MsgBroker) prefixTopic(topic string) string {
+	if b.config.TopicPrefix != "" {
+		if b.config.TopicPrefix[len(b.config.TopicPrefix)-1] == '/' {
+			topic = b.config.TopicPrefix + topic
+		} else {
+			topic = b.config.TopicPrefix + "/" + topic
+		}
+	}
+	return topic
+}
 
 func (b *MsgBroker) Publish(ctx context.Context, topic string, qos QoS, retain bool, payload []byte) error {
 	if b.client == nil {
 		return errors.New("client not initialized")
 	}
+	fullTopic := b.prefixTopic(topic)
 	qosByte, wait := qosToByte(qos)
-	token := b.client.Publish(topic, qosByte, retain, payload)
+	token := b.client.Publish(fullTopic, qosByte, retain, payload)
 	if !wait {
 		return nil
 	}
@@ -191,14 +230,16 @@ func (b *MsgBroker) PublishJSON(ctx context.Context, topic string, qos QoS, reta
 	if err != nil {
 		return err
 	}
+	logging.Debug("Publishing JSON", "topic", topic, "payload", string(data))
 	return b.Publish(ctx, topic, qos, retain, data)
 }
 
 // Subscribe registers handler and waits for SUBACK with timeout
-func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handler func(context.Context, string, []byte)) (Subscription, error) {
+func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error) {
 	if b.client == nil {
 		return nil, errors.New("client not initialized")
 	}
+	fullTopic := b.prefixTopic(topic)
 	// wrapper that converts paho message to our handler and logs panics without crashing
 	onMessageHandler := func(_ mqtt.Client, msg mqtt.Message) {
 		go func() {
@@ -207,10 +248,10 @@ func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handle
 					logging.Error("mqtt handler panic", "ClientName", b.config.ClientName, "topic", msg.Topic(), "err", r)
 				}
 			}()
-			handler(ctx, msg.Topic(), msg.Payload())
+			handler.OnMessage(ctx, msg.Topic(), msg.Payload())
 		}()
 	}
-	token := b.client.Subscribe(topic, byte(qos), onMessageHandler)
+	token := b.client.Subscribe(fullTopic, byte(qos), onMessageHandler)
 
 	timeout := b.config.SubscribeTimeout
 	if timeout <= 0 {
@@ -226,7 +267,7 @@ func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handle
 		b.mu.Lock()
 		b.subs[topic] = token
 		b.mu.Unlock()
-
+		logging.Info("Subscribed to topic", "clientName", b.config.ClientName, "topic", fullTopic)
 		return &msgSubscription{broker: b, topic: topic}, nil
 
 	case <-time.After(timeout):

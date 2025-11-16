@@ -42,6 +42,12 @@ To tail messages
 
 To see the base64 binary data as bits `echo AQ== | base64 -d | od -An -t u1`
 
+make build-uhn-tools
+
+./bin/uhn-monitor
+
+./bin/uhnctl push --edge edge1 --device io_kitchen --address 7 --value 1
+
 ## Simulator
 
 Rest interface
