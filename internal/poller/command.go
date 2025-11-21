@@ -42,6 +42,15 @@ func (p *SerialBusPoller) PushCommand(cmd uhn.DeviceCommand) bool {
 	}
 
 }
+func (p *busPollers) OnCommand(ctx context.Context, command uhn.IncomingCommand) error {
+	if(command.Action == "resync") {
+		logging.Info("Received resync command")
+		p.edgePublisher.ClearPublishedState()
+	}
+		
+	return nil
+}
+
 func (p *SerialBusPoller) handleCommand(ctx context.Context, c uhn.DeviceCommand) {
 	// Resolve device -> unitId
 

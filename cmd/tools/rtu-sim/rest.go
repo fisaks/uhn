@@ -17,7 +17,7 @@ type DeviceStateRequest struct {
 	AnalogInputs   []uint16 `json:"analogInputs,omitempty"`
 }
 
-func StartRestAPI() {
+func StartRestAPI() error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /device/{busId}/{deviceName}", getDeviceStateHandler)
@@ -43,7 +43,8 @@ func StartRestAPI() {
 	mux.HandleFunc("POST /device/{busId}/{deviceName}/digitalInput/{index}/press/{mode}", pressDigitalInputHandler)
 
 	log.Println("RTU Simulator REST API listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	return http.ListenAndServe(":8080", mux)
+
 }
 
 /* ------------------------ helpers: json & errors ------------------------ */
@@ -178,7 +179,7 @@ func getDigitalOutputStateHandler(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "DigitalOutputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint8{"digitalOutput": device.Coils[idx]})
+	writeJSON(w, http.StatusOK, map[string]uint8{"value": device.Coils[idx]})
 }
 
 func setDigitalOutputStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +233,7 @@ func getDigitalInputStateHandler(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "DigitalInputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint8{"digitalInput": device.DiscreteInputs[idx]})
+	writeJSON(w, http.StatusOK, map[string]uint8{"value": device.DiscreteInputs[idx]})
 }
 
 func setDigitalInputStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +289,7 @@ func getAnalogOutputStateHandler(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "AnalogOutputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint16{"analogOutput": device.HoldingRegisters[idx]})
+	writeJSON(w, http.StatusOK, map[string]uint16{"value": device.HoldingRegisters[idx]})
 }
 
 func setAnalogOutputStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +344,7 @@ func getAnalogInputStateHandler(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "AnalogInputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint16{"analogInput": device.InputRegisters[idx]})
+	writeJSON(w, http.StatusOK, map[string]uint16{"value": device.InputRegisters[idx]})
 }
 
 func setAnalogInputStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +403,7 @@ func toggleDigitalOutputHandler(w http.ResponseWriter, r *http.Request) {
 
 	// flip bit 0/1; if values may vary, normalize to 0/1 first:
 	dev.Coils[idx] ^= 1
-	writeJSON(w, http.StatusOK, map[string]uint8{"digitalOutput": dev.Coils[idx]})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "value": dev.Coils[idx]})
 }
 
 // ---------------------- TOGGLE: digital INPUT ----------------------
@@ -428,7 +429,7 @@ func toggleDigitalInputHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dev.DiscreteInputs[idx] ^= 1
-	writeJSON(w, http.StatusOK, map[string]uint8{"digitalInput": dev.DiscreteInputs[idx]})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "digitalInput": dev.DiscreteInputs[idx]})
 }
 
 // ---------------------- PRESS SIMULATION: digital INPUT ----------------------
@@ -458,7 +459,7 @@ func pressDigitalInputHandler(w http.ResponseWriter, r *http.Request) {
 	var d time.Duration
 	switch mode {
 	case "tap":
-		d = 250 * time.Millisecond
+		d = 500 * time.Millisecond
 	case "hold1":
 		d = 1 * time.Second
 	case "hold2":

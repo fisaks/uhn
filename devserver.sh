@@ -69,9 +69,11 @@ start_dev_env() {
     jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_TMP"
     export MQTT_URL=tcp://localhost:1883
     export EDGE_NAME=edge1
+    export UHN_LOG_LEVEL=debug
     
     echo "🧩 Edge connected to: $EDGE_PORT"
     echo "🧩 RTU simulator listening on: $SIM_PORT"
+    echo "📊 Log level: $UHN_LOG_LEVEL"
     echo "📡 MQTT: $MQTT_URL"
     echo "📄 Config: $EDGE_CONFIG_PATH / $SIM_CONFIG_PATH"
     echo "EDGE_PORT=$EDGE_PORT" > tmp/ports.env

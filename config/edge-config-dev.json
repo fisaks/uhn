@@ -1,5 +1,4 @@
 {
-    
     "buses": [
         {
             "busId": "bus_a",
@@ -63,6 +62,52 @@
             "capabilities": {
                 "toggleWord": 21760
             }
+        },
+        "test.io16": {
+            "vendor": "TestVendor",
+            "model": "Test 16 Digital Outputs",
+            "digitalOutputs": {
+                "start": 0,
+                "count": 16
+            },
+            "digitalInputs": null,
+            "analogOutputs": null,
+            "analogInputs": null,
+            "limits": {
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            },
+            "capabilities": {
+                "toggleWord": 21760
+            }
+        },
+        "test.di16": {
+            "vendor": "TestVendor",
+            "model": "Test 16 Digital Inputs",
+            "digitalOutputs": null,
+            "digitalInputs": {
+                "start": 0,
+                "count": 16
+            },
+            "analogOutputs": null,
+            "analogInputs": null,
+            "limits": {
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            },
+            "capabilities": {
+                "toggleWord": 21760
+            }
         }
     },
     "devices": {
@@ -76,10 +121,19 @@
                 "name": "relay_heating",
                 "unitId": 2,
                 "type": "waveshare.relay8"
+            },
+            {
+                "name": "io_test16_out",
+                "unitId": 3,
+                "type": "test.io16"
+            },
+            {
+                "name": "di_test16_in",
+                "unitId": 4,
+                "type": "test.di16"
             }
         ]
     },
-    "heartbeatInterval": 600, 
+    "heartbeatInterval": 600,
     "pollIntervalMs": 500
-    
 }

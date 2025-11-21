@@ -29,3 +29,11 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+

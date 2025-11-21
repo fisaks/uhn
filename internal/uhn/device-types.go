@@ -18,6 +18,11 @@ type DeviceState struct {
 	Errors         []string  `json:"errors,omitempty"`
 }
 
+type IncomingCommand struct {
+	ID     string `json:"id,omitempty"`
+	Action string `json:"action"`
+}
+
 type IncomingDeviceCommand struct {
 	ID      string `json:"id,omitempty"`
 	Device  string `json:"device,omitempty"` // overridden by topic
@@ -40,7 +45,9 @@ type CommandPusher interface {
 }
 type EdgePublisher interface {
 	PublishDeviceState(ctx context.Context, state DeviceState) error
+	ClearPublishedState()
 }
 type EdgeSubscriber interface {
 	OnDeviceCommand(ctx context.Context, command IncomingDeviceCommand) error
+	OnCommand(ctx context.Context, command IncomingCommand) error
 }

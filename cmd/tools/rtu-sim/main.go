@@ -25,7 +25,9 @@ func main() {
 	}
 
 	// Start REST API
-	go StartRestAPI() // Start in background, see rest.go
+	if err := StartRestAPI(); err != nil {
+		log.Fatalf("StartRestAPI failed: %v", err)
+	}
 
 	// Wait forever
 	select {}

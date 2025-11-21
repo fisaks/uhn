@@ -16,6 +16,7 @@ type BusPollers interface {
 
 type busPollers struct {
 	pollers []BusPoller
+	edgePublisher uhn.EdgePublisher
 }
 
 func NewBusPollers(cfg *config.EdgeConfig, edgePublisher uhn.EdgePublisher) (BusPollers, error) {
@@ -28,7 +29,7 @@ func NewBusPollers(cfg *config.EdgeConfig, edgePublisher uhn.EdgePublisher) (Bus
 		}
 		pollers[i] = poller
 	}
-	return &busPollers{pollers: pollers}, nil
+	return &busPollers{pollers: pollers, edgePublisher: edgePublisher}, nil
 }
 
 func (p *busPollers) StartAllPollers(ctx context.Context) {

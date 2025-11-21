@@ -1,0 +1,4 @@
+# requirements.in
+pytest>=9.0.1,<10
+requests>=2.32.5,<3
+paho-mqtt>=2.1.0,<3
