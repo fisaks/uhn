@@ -65,8 +65,9 @@ start_dev_env() {
     
     mkdir -p tmp
     rm -f "$EDGE_CONFIG_PATH" "$SIM_CONFIG_PATH"
-    #jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$EDGE_CONFIG_TMP"
-    jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_TMP"
+    jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$EDGE_CONFIG_PATH"
+    jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_PATH"
+    
     export MQTT_URL=tcp://localhost:1883
     export EDGE_NAME=edge1
     export UHN_LOG_LEVEL=debug
@@ -81,17 +82,24 @@ start_dev_env() {
     
     
     # Create tmux session and first pane: MQTT monitor
-    tmux new-session -d -s $SESSION -n dev
+    #tmux new-session -d -s $SESSION -n dev
+    tmux new-session -d -s $SESSION -n dev -e EDGE_PORT="$EDGE_PORT" \
+        -e SIM_PORT="$SIM_PORT" \
+        -e EDGE_CONFIG_PATH="$EDGE_CONFIG_PATH" \
+        -e SIM_CONFIG_PATH="$SIM_CONFIG_PATH" \
+        -e MQTT_URL="$MQTT_URL" \
+        -e EDGE_NAME="$EDGE_NAME" \
+        -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL"
     #tmux send-keys -t $SESSION.0 "mosquitto_sub -h localhost -t 'uhn/#' -v" C-m
     tmux send-keys -t $SESSION.0 "go build -o tmp/uhn-monitor ./cmd/tools/monitor && ./tmp/uhn-monitor" C-m
     
     # Split below (75% bottom), top remains MQTT monitor
     tmux split-window -v -t $SESSION.0
-    tmux resize-pane -t $SESSION.0 -y 5
+    tmux resize-pane -t $SESSION.0 -y 15
     tmux send-keys -t $SESSION.1 \
     "echo '🪵 Showing Mosquitto logs (press Ctrl-b d to detach)' && docker logs -f uhn-mosquitto" C-m
     tmux split-window -v -t $SESSION.1
-    tmux resize-pane -t $SESSION.1 -y 3
+    tmux resize-pane -t $SESSION.1 -y 15
     
     
     

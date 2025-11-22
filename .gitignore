@@ -37,3 +37,5 @@ __pycache__/
 *.pyd
 .venv/
 
+mosquitto/data/
+mosquitto/log/

@@ -5,8 +5,10 @@ services:
     restart: unless-stopped
     ports: ["1883:1883"]
     volumes:
-      - ./mosquitto:/mosquitto
-    command: ["mosquitto", "-c", "/mosquitto/mosquitto-no-auth.conf"]
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     profiles: ["dev", "dev-real", "prod", "test"]
 
   # Dev/Test: edge + simulator in same container using virtual PTYs
