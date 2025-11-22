@@ -1,5 +1,17 @@
 # Unified Home Network
 
+> 🚧 **WORK IN PROGRESS** 🚧
+
+A personal project to create an open, distributed automation platform—  
+one day replacing my aging IHC installation with something I control, extend, and trust.
+
+My aim is to build a flexible replacement for my legacy IHC setup—capable of supporting both wired (e.g. Modbus, GPIO, I²C) and wireless (e.g. Zigbee) devices, with no artificial hardware limits.
+
+**Not limited by vendor, protocol, or device count.**
+
+
+
+
 ## Dev setup
 
 Install tools:
