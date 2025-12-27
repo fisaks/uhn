@@ -28,37 +28,37 @@ def test_setting_output_bit_off(rtu_sim_client, mqtt_watcher,io_test16_out):
                 .thenDeviceOutputBitIs(io_test16_out, bit, 0, timeout=8.0)
     )
 
-def test_when_something_external_change_output(rtu_sim_client, mqtt_watcher,io_kitchen):
+def test_when_something_external_change_output(rtu_sim_client, mqtt_watcher,kitchen_io8_1):
     
     bit = random.randint(0, 7)
     s = given(rtu_sim_client, mqtt_watcher)
 
     (
-        s.device(io_kitchen).and_output(bit).is_off().done()
+        s.device(kitchen_io8_1).and_output(bit).is_off().done()
             .resync() 
             .wait_for_expected_initial_states()
-                .when_output_is_set_on(io_kitchen, bit)
-                .thenDeviceOutputBitIs(io_kitchen, bit, 1, timeout=3.0)
-                .when_output_is_set_off(io_kitchen, bit)
-                .thenDeviceOutputBitIs(io_kitchen, bit, 0, timeout=3.0)
+                .when_output_is_set_on(kitchen_io8_1, bit)
+                .thenDeviceOutputBitIs(kitchen_io8_1, bit, 1, timeout=3.0)
+                .when_output_is_set_off(kitchen_io8_1, bit)
+                .thenDeviceOutputBitIs(kitchen_io8_1, bit, 0, timeout=3.0)
 
     )
 
-def test_when_multiple_outputs_change_at_the_same_time(rtu_sim_client, mqtt_watcher,io_kitchen,io_test16_out):
+def test_when_multiple_outputs_change_at_the_same_time(rtu_sim_client, mqtt_watcher,kitchen_io8_1,io_test16_out):
     
     s = given(rtu_sim_client, mqtt_watcher)
 
     (
-        s.device(io_kitchen).with_outputs([1]*8).done()
+        s.device(kitchen_io8_1).with_outputs([1]*8).done()
         .device(io_test16_out).with_outputs([1]*16).done()
             .resync() 
             .wait_for_expected_initial_states()
-                .when_output_is_set_off(io_kitchen, 2)
+                .when_output_is_set_off(kitchen_io8_1, 2)
                 .when_output_is_set_off(io_test16_out, 9)
-                .when_command(io_kitchen, action="setdigitaloutput", address=4, value=0)
+                .when_command(kitchen_io8_1, action="setdigitaloutput", address=4, value=0)
                 .when_command(io_test16_out, action="setdigitaloutput", address=12, value=0)
                 .when_command(io_test16_out, action="setdigitaloutput", address=1, value=0)
-                .thenDeviceOutputIs(io_kitchen, [1,1,1,0,1,0,1,1], timeout=3.0)
+                .thenDeviceOutputIs(kitchen_io8_1, [1,1,1,0,1,0,1,1], timeout=3.0)
                 .thenDeviceOutputIs(io_test16_out, [1,1,1,0,1,1,0,1,  1,1,1,1,1,1,0,1], timeout=3.0)
     )
 

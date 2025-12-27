@@ -35,9 +35,6 @@
                 "timeoutMs": 150,
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 10
-            },
-            "capabilities": {
-                "toggleWord": 21760
             }
         },
         "waveshare.relay8": {
@@ -58,9 +55,6 @@
                 "timeoutMs": 150,
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 15
-            },
-            "capabilities": {
-                "toggleWord": 21760
             }
         },
         "test.io16": {
@@ -113,12 +107,12 @@
     "devices": {
         "bus_a": [
             {
-                "name": "io_kitchen",
+                "name": "kitchen_io8_1",
                 "unitId": 1,
                 "type": "waveshare.io8"
             },
             {
-                "name": "relay_heating",
+                "name": "kitchen_relay8_1",
                 "unitId": 2,
                 "type": "waveshare.relay8"
             },
@@ -131,7 +125,13 @@
                 "name": "di_test16_in",
                 "unitId": 4,
                 "type": "test.di16"
+            },
+            {
+                "name": "toilet_io8_1",
+                "unitId": 5,
+                "type": "waveshare.io8"
             }
+
         ]
     },
     "heartbeatInterval": 600,

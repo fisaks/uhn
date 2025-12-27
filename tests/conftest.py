@@ -34,13 +34,12 @@ def mqtt_watcher():
     w.stop()
 
 @pytest.fixture
-def io_kitchen(edge_name) -> TestDevice:
-    return TestDevice(bus="bus_a", name="io_kitchen", edge_name=edge_name)
+def kitchen_io8_1(edge_name) -> TestDevice:
+    return TestDevice(bus="bus_a", name="kitchen_io8_1", edge_name=edge_name)
 
 @pytest.fixture
-def relay_heating(edge_name) -> TestDevice:
-    return TestDevice(bus="bus_a", name="relay_heating", edge_name=edge_name)
-
+def kitchen_relay8_1(edge_name) -> TestDevice:
+    return TestDevice(bus="bus_a", name="kitchen_relay8_1", edge_name=edge_name)
 @pytest.fixture
 def io_test16_out(edge_name) -> TestDevice:
     return TestDevice(bus="bus_a", name="io_test16_out", edge_name=edge_name)
