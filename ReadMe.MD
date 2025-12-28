@@ -10,6 +10,7 @@ My aim is to build a flexible replacement for my legacy IHC setup—capable of s
 **Not limited by vendor, protocol, or device count.**
 
 The goal is something like this
+```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                BROWSER                                       │
 │                                                                              │
@@ -98,7 +99,7 @@ The goal is something like this
 │  │ └─────────────────┘ │ │               │ │ └─────────────────────────┘││
 │  └─────────────────────┘ │               │ └────────────────────────────┘│
 └──────────────────────────┘               └───────────────────────────────┘
-
+```
 
 
 ## Dev setup
