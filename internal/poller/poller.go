@@ -143,10 +143,12 @@ func (p *SerialBusPoller) pollOnce(ctx context.Context) {
 	}
 }
 func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.DeviceConfig) (bool, PollResult) {
+	now := time.Now()
 	state := uhn.DeviceState{
-		Timestamp: time.Now(),
-		Name:      device.Name,
-		Status:    "ok",
+		Timestamp:   now,
+		TimestampMs: now.UnixMilli(),
+		Name:        device.Name,
+		Status:      "ok",
 	}
 	var errors []string
 	successfulReads := 0

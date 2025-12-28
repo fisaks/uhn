@@ -9,6 +9,95 @@ My aim is to build a flexible replacement for my legacy IHC setup—capable of s
 
 **Not limited by vendor, protocol, or device count.**
 
+The goal is something like this
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                BROWSER                                       │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                    UHN UI (React app)                                  │  │
+│  │                                                                        │  │
+│  │  - Runs in browser                                                     │  │
+│  │  - Loaded through UXP                                                  │  │
+│  │  - Talks to UHN Master via REST + WebSocket                            │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└───────────────────────────────▲──────────────────────────────────────────────┘
+                                │ REST / WebSocket
+                                │
+┌───────────────────────────────┴──────────────────────────────────────────────┐
+│                               UHN MASTER                                     │
+│                        (Node.js / UXP remote app)                            │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │ REST API                                                               │  │
+│  │ WebSocket API                                                          │  │
+│  │                                                                        │  │
+│  │ - Blueprint upload / management                                        │  │
+│  │ - Global coordination                                                  │  │
+│  │ - Rule placement (master vs edge)                                      │  │
+│  │ - State aggregation from edges                                         │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │ MQTT Broker (Master-local)                                             │  │
+│  │                                                                        │  │
+│  │ - Receives state/events from edges                                     │  │
+│  │ - Sends commands / assignments to edges                                │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │ Go Sandbox Launcher (local)                                            │  │
+│  │                                                                        │  │
+│  │  ┌──────────────────────────────────────────────────────────────────┐  │  │
+│  │  │ WORKER (Node.js, sandboxed)                                      │  │  │
+│  │  │                                                                  │  │  │
+│  │  │ - Executes rules assigned to master                              │  │  │
+│  │  │ - Read-only state mirror                                         │  │  │
+│  │  │ - Timers owned locally (for master rules)                        │  │  │
+│  │  │ - stdin/stdout to UHN Master Node                                │  │  │
+│  │  │ - No MQTT, no REST, no WS, no devices                            │  │  │
+│  │  └──────────────────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└───────────────────────────────┬──────────────────────────────────────────────┘
+                                │
+                                │ MQTT bridge (bi-directional)
+                                │
+        ┌───────────────────────┴───────────────────────┐
+        │                                               │
+┌───────▼──────────────────┐               ┌────────────▼──────────────────┐
+│        UHN EDGE #1       │               │        UHN EDGE #N            │
+│           (Go)           │               │           (Go)                │
+│                          │               │                               │
+│  ┌─────────────────────┐ │               │ ┌────────────────────────────┐│
+│  │ MQTT Broker (local) │◀┼───────────────┼▶│ MQTT Broker (local)        ││
+│  │ (bridged to master) │ │               │ │ (bridged to master)        ││
+│  └─────────────────────┘ │               │ └────────────────────────────┘│
+│                          │               │                               │
+│  - Device I/O            │               │ - Device I/O                  │
+│  - Local state           │               │ - Local state                 │
+│  - Local timers          │               │ - Local timers                │
+│                          │               │                               │
+│  ┌─────────────────────┐ │               │ ┌────────────────────────────┐│
+│  │ Go Sandbox Launcher │ │               │ │ Go Sandbox Launcher        ││
+│  │                     │ │               │ │                            ││
+│  │ ┌─────────────────┐ │ │               │ │ ┌─────────────────────────┐││
+│  │ │ WORKER          │ │ │               │ │ │ WORKER                  │││
+│  │ │ (Node.js)       │ │ │               │ │ │ (Node.js)               │││
+│  │ │ sandboxed       │ │ │               │ │ │ sandboxed               │││
+│  │ │                 │ │ │               │ │ │                         │││
+│  │ │ - Executes      │ │ │               │ │ │ - Executes              │││
+│  │ │   edge rules    │ │ │               │ │ │   edge rules            │││
+│  │ │ - Read-only     │ │ │               │ │ │ - Read-only             │││
+│  │ │   state mirror  │ │ │               │ │ │   state mirror          │││
+│  │ │ - Timers local  │ │ │               │ │ │ - Timers local          │││
+│  │ │ - stdin/stdout  │ │ │               │ │ │ - stdin/stdout          │││
+│  │ │ - no MQTT       │ │ │               │ │ │ - no MQTT               │││
+│  │ │ - no REST/WS    │ │ │               │ │ │ - no REST/WS            │││
+│  │ │ - no devices    │ │ │               │ │ │ - no devices            │││
+│  │ └─────────────────┘ │ │               │ │ └─────────────────────────┘││
+│  └─────────────────────┘ │               │ └────────────────────────────┘│
+└──────────────────────────┘               └───────────────────────────────┘
 
 
 

@@ -9,6 +9,7 @@ import (
 
 type DeviceState struct {
 	Timestamp      time.Time `json:"timestamp"`
+	TimestampMs    int64     `json:"timestampMs"`
 	Name           string    `json:"name"`
 	DigitalOutputs []byte    `json:"digitalOutputs,omitempty"`
 	DigitalInputs  []byte    `json:"digitalInputs,omitempty"`
