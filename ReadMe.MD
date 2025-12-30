@@ -25,7 +25,16 @@ The goal is something like this
 └───────────────────────────────▲──────────────────────────────────────────────┘
                                 │ REST / WebSocket
                                 │
-┌───────────────────────────────┴──────────────────────────────────────────────┐
+┌───────────────────────────────▼──────────────────────────────────────────────┐
+│                              UXP                                             │
+│  - REST + WebSocket Reverse Proxy                                            │
+│  - UXP Common Libs                                                           │ 
+│  - Authentication and Authorization                                          │
+│                                                                              │
+└───────────────────────────────▲──────────────────────────────────────────────┘
+                                │
+                                │
+┌───────────────────────────────▼┴─────────────────────────────────────────────┐
 │                               UHN MASTER                                     │
 │                        (Node.js / UXP remote app)                            │
 │                                                                              │
@@ -50,13 +59,17 @@ The goal is something like this
 │  │ Go Sandbox Launcher (local)                                            │  │
 │  │                                                                        │  │
 │  │  ┌──────────────────────────────────────────────────────────────────┐  │  │
-│  │  │ WORKER (Node.js, sandboxed)                                      │  │  │
+│  │  │ RuleRuntime (Node.js, sandboxed)                                 │  │  │
 │  │  │                                                                  │  │  │
 │  │  │ - Executes rules assigned to master                              │  │  │
 │  │  │ - Read-only state mirror                                         │  │  │
 │  │  │ - Timers owned locally (for master rules)                        │  │  │
 │  │  │ - stdin/stdout to UHN Master Node                                │  │  │
 │  │  │ - No MQTT, no REST, no WS, no devices                            │  │  │
+│  │  │ - Deterministic                                                  │  │  │
+│  │  │ - No I/O                                                         │  │  │
+│  │  │ - No network                                                     │  │  │
+│  │  │ - Pure logic + timers                                            │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -71,7 +84,7 @@ The goal is something like this
 │           (Go)           │               │           (Go)                │
 │                          │               │                               │
 │  ┌─────────────────────┐ │               │ ┌────────────────────────────┐│
-│  │ MQTT Broker (local) │◀┼───────────────┼▶│ MQTT Broker (local)        ││
+│  │ MQTT Broker (local) │ │               │ │ MQTT Broker (local)        ││
 │  │ (bridged to master) │ │               │ │ (bridged to master)        ││
 │  └─────────────────────┘ │               │ └────────────────────────────┘│
 │                          │               │                               │
@@ -83,7 +96,7 @@ The goal is something like this
 │  │ Go Sandbox Launcher │ │               │ │ Go Sandbox Launcher        ││
 │  │                     │ │               │ │                            ││
 │  │ ┌─────────────────┐ │ │               │ │ ┌─────────────────────────┐││
-│  │ │ WORKER          │ │ │               │ │ │ WORKER                  │││
+│  │ │ RuleRuntime     │ │ │               │ │ │ RuleRuntime             │││
 │  │ │ (Node.js)       │ │ │               │ │ │ (Node.js)               │││
 │  │ │ sandboxed       │ │ │               │ │ │ sandboxed               │││
 │  │ │                 │ │ │               │ │ │                         │││
@@ -96,6 +109,9 @@ The goal is something like this
 │  │ │ - no MQTT       │ │ │               │ │ │ - no MQTT               │││
 │  │ │ - no REST/WS    │ │ │               │ │ │ - no REST/WS            │││
 │  │ │ - no devices    │ │ │               │ │ │ - no devices            │││
+│  │ │ - Can escalate  │ │ │               │ │ │ - Can escalate          │││
+│  │ │   rule to run   │ │ │               │ │ │   rule to run           │││
+│  │ │   on master     │ │ │               │ │ │   on master             │││
 │  │ └─────────────────┘ │ │               │ │ └─────────────────────────┘││
 │  └─────────────────────┘ │               │ └────────────────────────────┘│
 └──────────────────────────┘               └───────────────────────────────┘
