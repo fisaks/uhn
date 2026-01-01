@@ -108,8 +108,20 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	opts.SetClientID("uhn-" + b.config.ClientName)
 	opts.SetConnectTimeout(b.config.ConnectTimeout)
 	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(true)
+	opts.SetCleanSession(false)
+	opts.SetKeepAlive(60 * time.Second)
+	opts.SetPingTimeout(15 * time.Second)
+
+	opts.OnConnectionLost = func(c mqtt.Client, err error) {
+		logging.Warn("MQTT connection lost", "clientName", b.config.ClientName, "error", err)
+	}
 	opts.OnConnect = func(c mqtt.Client) {
+		logging.Info("MQTT connected", "clientName", b.config.ClientName)
 		b.onConnectPublisher()
+	}
+	opts.OnReconnecting = func(c mqtt.Client, co *mqtt.ClientOptions) {
+		logging.Info("MQTT reconnecting", "clientName", b.config.ClientName)
 	}
 	return opts
 }
