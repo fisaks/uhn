@@ -198,11 +198,11 @@ func setupCgroup(limits *config.Limits) {
 		util.Fatal("failed to create cgroup directory %v", err)
 	}
 
-	if limits.MemoryBytes > 0 {
+	if limits != nil && limits.MemoryBytes > 0 {
 		writeCgroupFile("memory.max", strconv.FormatInt(limits.MemoryBytes, 10))
 	}
 
-	if limits.MaxPids > 0 {
+	if limits != nil && limits.MaxPids > 0 {
 		writeCgroupFile("pids.max", strconv.FormatInt(limits.MaxPids, 10))
 	}
 
