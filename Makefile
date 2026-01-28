@@ -47,7 +47,13 @@ docker-build:
 
 docker-stop:
 	docker compose down
+
 build-uhn-tools:
 	go build -o bin/uhnctl ./cmd/tools/uhnctl
 	go build -o bin/uhn-monitor ./cmd/tools/monitor/uhn-monitor.go
-
+	go build -o bin/uhn-sandboxd ./cmd/tools/sandboxd/uhn-sandboxd.go
+	go build -o bin/uhn-sandbox-launch ./cmd/tools/sandbox-launch/uhn-sandbox-launch.go
+	sudo rm -f bin/uhn-sandbox-setup
+	go build -o bin/uhn-sandbox-setup ./cmd/tools/sandbox-setup/uhn-sandbox-setup.go
+	sudo chown root:root bin/uhn-sandbox-setup
+	sudo chmod 4755 bin/uhn-sandbox-setup

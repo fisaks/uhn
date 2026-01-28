@@ -39,3 +39,5 @@ __pycache__/
 
 mosquitto/data/
 mosquitto/log/
+sandbox.json
+sandbox2.json
