@@ -2,7 +2,7 @@
 
 > 🚧 **WORK IN PROGRESS** 🚧
 
-A personal project to create an open, distributed automation platform—  
+A personal project to create an open, distributed automation platform—
 one day replacing my aging IHC installation with something I control, extend, and trust.
 
 My aim is to build a flexible replacement for my legacy IHC setup—capable of supporting both wired (e.g. Modbus, GPIO, I²C) and wireless (e.g. Zigbee) devices, with no artificial hardware limits.
@@ -10,6 +10,7 @@ My aim is to build a flexible replacement for my legacy IHC setup—capable of s
 **Not limited by vendor, protocol, or device count.**
 
 The goal is something like this
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                BROWSER                                       │
@@ -117,6 +118,9 @@ The goal is something like this
 └──────────────────────────┘               └───────────────────────────────┘
 ```
 
+## More Documentation
+
+https://github.com/fisaks/uhn/blob/main/docs
 
 ## Dev setup
 

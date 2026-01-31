@@ -14,7 +14,7 @@ func main() {
 
 	cfg, err := config.LoadSandboxConfig(configPath)
 	if err != nil {
-		util.Fatal("Failed to load sandbox config: %v", err)
+		util.Fatal("uhn-sandbox-launch", "Failed to load sandbox config: %v", err)
 	}
 
 	sandboxPath := os.Getenv("UHN_SANDBOX_PATH")
@@ -24,7 +24,7 @@ func main() {
 
 	configPath, err = config.PersistSandboxConfig(cfg)
 	if err != nil {
-		util.Fatal("Failed to persist sandbox config: %v", err)
+		util.Fatal("uhn-sandbox-launch", "Failed to persist sandbox config: %v", err)
 	}
 	setupPath := filepath.Join(sandboxPath, "uhn-sandbox-setup")
 
@@ -36,7 +36,7 @@ func main() {
 		if ee, ok := err.(*exec.ExitError); ok {
 			os.Exit(ee.ExitCode())
 		}
-		util.Fatal("Failed to run sandbox setup: %v", err)
+		util.Fatal("uhn-sandbox-launch", "Failed to run sandbox setup: %v", err)
 
 	}
 }

@@ -1,6 +1,7 @@
 package util
 
 import (
+	"net"
 	"strconv"
 	"strings"
 )
@@ -78,4 +79,20 @@ func ToInt(v any) int {
 		}
 	}
 	return 0
+}
+
+func SplitHostAndPort(hostPort string, defaultAddr string) (address, host string, port int, err error) {
+	addr := hostPort
+	if addr == "" {
+		addr = defaultAddr
+	}
+	addressStr, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", "", 0, err
+	}
+	portInt, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return addr, addressStr, portInt, nil
 }

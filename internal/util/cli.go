@@ -3,6 +3,7 @@ package util
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -29,10 +30,6 @@ func ParseSandboxConfigArgs(args []string) string {
 	}
 
 	return *configPath
-}
-func Fatal(text string, args ...any) {
-	fmt.Fprintf(os.Stderr, text+"\n", args...)
-	os.Exit(1)
 }
 
 func PrepareSetupSandboxCmd(cmd *exec.Cmd) {
@@ -78,4 +75,32 @@ func splitEnv(e string) (key, value string, ok bool) {
 		return "", "", false
 	}
 	return e[:i], e[i+1:], true
+}
+
+func AttachAndStartProcessIO(cmd *exec.Cmd) error {
+	childStdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	childStdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	childStderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	go func() {
+		_, _ = io.Copy(childStdin, os.Stdin)
+		_ = childStdin.Close()
+	}()
+	go io.Copy(os.Stdout, childStdout)
+	go io.Copy(os.Stderr, childStderr)
+
+	return nil
 }

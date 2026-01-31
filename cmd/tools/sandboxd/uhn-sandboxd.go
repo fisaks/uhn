@@ -14,14 +14,18 @@ import (
 )
 
 func main() {
+	if os.Geteuid() == 0 {
+		util.Fatal("uhn-sandboxd", "Must not run as root")
+	}
+
 	configPath := util.ParseSandboxConfigArgs(os.Args)
 	cfg, err := config.LoadSandboxConfig(configPath)
 	if err != nil {
-		util.Fatal("Failed to load sandbox config: %v", err)
+		util.Fatal("uhn-sandboxd", "Failed to load sandbox config: %v", err)
 	}
 
 	if err := supervise(cfg); err != nil {
-		util.Fatal("sandbox failed: %v", err)
+		util.Fatal("uhn-sandboxd", "sandbox supervise failed: %v", err)
 	}
 }
 func supervise(cfg *config.SandboxConfig) error {
@@ -39,10 +43,7 @@ func supervise(cfg *config.SandboxConfig) error {
 
 	cmd.Env = util.MergeEnv(config.BaseSandboxEnv(false), cfg.Env)
 	cmd.Dir = cfg.Cwd
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	if err := util.AttachAndStartProcessIO(cmd); err != nil {
 		return err
 	}
 

@@ -9,18 +9,29 @@ import (
 	"path/filepath"
 )
 
+type NetworkMode string
+
+const (
+	NetworkNone        NetworkMode = "none"
+	NetworkLoopback    NetworkMode = "lo"
+	NetworkDebugAttach NetworkMode = "debug-attach"
+	NetworkFull        NetworkMode = "full"
+)
+
 type Limits struct {
 	MemoryBytes int64 `json:"memoryBytes"`
 	MaxPids     int64 `json:"maxPids"`
 }
 
 type SandboxConfig struct {
-	Command   string   `json:"command"`
-	Args      []string `json:"args"`
-	Cwd       string   `json:"cwd,omitempty"`
-	Env       []string `json:"env,omitempty"`
-	Limits    *Limits  `json:"limits,omitempty"`
-	RunAsUser string   `json:"runAsUser"`
+	Command     string      `json:"command"`
+	Args        []string    `json:"args"`
+	Cwd         string      `json:"cwd,omitempty"`
+	Env         []string    `json:"env,omitempty"`
+	Limits      *Limits     `json:"limits,omitempty"`
+	RunAsUser   string      `json:"runAsUser"`
+	Network     NetworkMode `json:"network,omitempty"`
+	DebugListen string      `json:"debugListen,omitempty"`
 }
 
 func LoadSandboxConfig(path string) (*SandboxConfig, error) {
@@ -64,7 +75,6 @@ func readConfigFromStdin() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
 
 func PersistSandboxConfig(cfg *SandboxConfig) (string, error) {
 
