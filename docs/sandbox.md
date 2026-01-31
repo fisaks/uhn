@@ -52,7 +52,9 @@ Sandbox execution is split into **four clearly separated roles**, each with a st
    - Constructs the sandbox filesystem
    - Performs `chroot()`
    - Drops privileges permanently
-   - `exec()`s the sandbox supervisor
+   - `exec()`s the sandbox supervisor in normal operation
+   - Swap the setup process with sandboxd binary (same PID, new image) in normal operation.
+   - **Remains alive as root only when `network: "debug-attach"` is used**, acting as a host-side debug forwarder port
 
 4. **uhn-sandboxd** (Go, unprivileged)
    - Acts as the sandbox **supervisor**
@@ -68,7 +70,7 @@ Sandbox execution is split into **four clearly separated roles**, each with a st
    - Runs fully inside the sandbox under sandboxd supervision
 
 Only **uhn-sandbox-setup** runs as root, and only until the sandbox is fully constructed.
-After `exec()`, no privileged process remains.
+After `exec()`, no privileged process remains except in explicit debug-attach mode.
 
 ---
 
@@ -91,7 +93,11 @@ Filesystem behavior:
 Writable locations are intentionally limited to:
 
 - `/tmp` (tmpfs)
-- `/dev` (tmpfs with a minimal device set)
+
+The `/dev` filesystem is mounted as a `tmpfs`, populated with a minimal and explicit
+set of character devices (`null`, `zero`, `random`, `urandom`), and then
+**remounted read-only**. Sandboxed processes cannot create, remove, or modify
+device nodes.
 
 ---
 

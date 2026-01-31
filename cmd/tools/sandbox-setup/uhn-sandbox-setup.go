@@ -462,6 +462,13 @@ func setupDev(root string) {
 			util.Fatal("uhn-sandbox-setup", "mknod %s failed %v", path, err)
 		}
 	}
+
+	if err := syscall.Mount("", root+"/dev", "",
+		syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC,
+		""); err != nil {
+		util.Fatal("uhn-sandbox-setup", "remount /dev readonly failed %v", err)
+	}
+
 }
 
 func initSandboxRoot(root string) {
