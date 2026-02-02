@@ -52,8 +52,7 @@ Sandbox execution is split into **four clearly separated roles**, each with a st
    - Constructs the sandbox filesystem
    - Performs `chroot()`
    - Drops privileges permanently
-   - `exec()`s the sandbox supervisor in normal operation
-   - Swap the setup process with sandboxd binary (same PID, new image) in normal operation.
+   - Swap the setup process with sandboxd binary `exec()` (same PID, new image) in normal operation.
    - **Remains alive as root only when `network: "debug-attach"` is used**, acting as a host-side debug forwarder port
 
 4. **uhn-sandboxd** (Go, unprivileged)
@@ -209,14 +208,14 @@ debugListen: "0.0.0.0:9250"
 ## Lifecycle & Supervision Guarantees
 
 - **uhn-sandbox-launcher** remains alive for the entire sandbox lifetime
-- **uhn-sandboxd** is always a descendant of the launcher
-- **uhn-runtime** always runs under sandboxd supervision
+- **uhn-sandbox-setup** is started by the launcher and performs privileged setup
+- In normal operation, **uhn-sandbox-setup `exec()`s into `uhn-sandboxd`** (same PID, new image)
+- In `network: "debug-attach"` mode, **uhn-sandbox-setup stays alive** and spawns `uhn-sandboxd` as a child while also running the host-side debug forwarder
+- **uhn-runtime** always runs under `uhn-sandboxd` supervision
 - If the launcher exits, the sandbox is terminated
 - If the runtime exits, the launcher exits with the same status
-- All processes spawned by uhn-sandboxd run in a dedicated process group.
+- All processes spawned by uhn-sandboxd run in a dedicated process group
 - Signals are forwarded and process trees are terminated deterministically
-
-This guarantees a clean and observable lifecycle without orphaned processes.
 
 ---
 
@@ -252,7 +251,7 @@ This preserves a simple and reliable lifecycle relationship.
 
 ### No Shell Usage
 
-The sandbox never invokes a shell:
+The sandbox infrastructure itself never invokes a shell; any shell execution must be explicitly requested as a binary by the sandboxed process.
 
 - No environment-based command expansion
 - No globbing
