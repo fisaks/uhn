@@ -3,7 +3,9 @@ package main
 import (
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/util"
@@ -31,12 +33,28 @@ func main() {
 	cmd := exec.Command(setupPath, "run", "--config", configPath)
 	util.PrepareSetupSandboxCmd(cmd)
 
-	if err := cmd.Run(); err != nil {
-		// Preserve exit code when possible
+	if err := cmd.Start(); err != nil {
+		util.Fatal("uhn-sandbox-launch", "Failed to start sandbox setup: %v", err)
+	}
+
+	sigCh := make(chan os.Signal, 4)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+
+	go func() {
+		for sig := range sigCh {
+			if cmd.Process != nil {
+				_ = cmd.Process.Signal(sig)
+			}
+		}
+	}()
+
+	err = cmd.Wait()
+	signal.Stop(sigCh)
+
+	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			os.Exit(ee.ExitCode())
 		}
 		util.Fatal("uhn-sandbox-launch", "Failed to run sandbox setup: %v", err)
-
 	}
 }

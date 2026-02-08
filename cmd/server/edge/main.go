@@ -10,6 +10,7 @@ import (
 
 	"github.com/fisaks/uhn/internal/catalog"
 	"github.com/fisaks/uhn/internal/config"
+	"github.com/fisaks/uhn/internal/encrypt"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
@@ -40,6 +41,10 @@ func main() {
 		"pollMs", cfg.PollIntervalMs,
 	)
 	catalog := catalog.NewEdgeCatalog(cfg)
+	keyPair,err := encrypt.NewEdgeKeyPair(edgeName, path)
+	if err != nil {
+		logging.Fatal("Failed to load or create edge key pair", "error", err)
+	}
 	// Graceful shutdown context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -53,6 +58,7 @@ func main() {
 		SubscribeTimeout: 5 * time.Second,
 	}, catalog, time.Duration(cfg.HeartbeatInterval)*time.Second)
 
+	edgeBroker.AddOnConnectPublisher("identity", keyPair)
 	edgeBroker.Connect(ctx)
 	defer edgeBroker.Close(ctx)
 

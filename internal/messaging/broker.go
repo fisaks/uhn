@@ -104,6 +104,7 @@ func (b *MsgBroker) Connect(ctx context.Context) error {
 }
 
 func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
+
 	opts := mqtt.NewClientOptions().AddBroker(b.config.BrokerURL)
 	opts.SetClientID("uhn-" + b.config.ClientName)
 	opts.SetConnectTimeout(b.config.ConnectTimeout)
@@ -112,7 +113,8 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	opts.SetCleanSession(false)
 	opts.SetKeepAlive(60 * time.Second)
 	opts.SetPingTimeout(15 * time.Second)
-
+	willTopic := b.prefixTopic("status")
+	opts.SetWill(willTopic, "offline", 1, true)
 	opts.OnConnectionLost = func(c mqtt.Client, err error) {
 		logging.Warn("MQTT connection lost", "clientName", b.config.ClientName, "error", err)
 	}
@@ -147,7 +149,7 @@ func (b *MsgBroker) onConnectPublisher() {
 	b.mu.RUnlock()
 
 	ctx := context.Background()
-
+	b.Publish(ctx, "status", 1, true, []byte("online"))
 	for id, publisher := range publisherCopy {
 		req, err := publisher.OnConnectPublish(ctx)
 		if err != nil {

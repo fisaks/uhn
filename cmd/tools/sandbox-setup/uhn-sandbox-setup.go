@@ -316,7 +316,8 @@ func mountSandboxFilesystem(root string, paths SandboxHostPaths) {
 	// host-provided mounts
 	bind(paths.Runtime, root+"/uhn-runtime", true)
 	bind(paths.Node, root+"/uhn-node", true)
-	bind(paths.Workspace, root+"/uhn-workspace", true)
+	bind(paths.Workspace+"/sandbox/current", root+"/uhn-workspace/sandbox/current", true)
+	bind(paths.Workspace+"/blueprint/active", root+"/uhn-workspace/blueprint/active", true)
 	bind(paths.Sandbox, root+"/usr/lib/uhn", true)
 
 	// system mounts
@@ -485,7 +486,8 @@ func initSandboxRoot(root string) {
 
 	dirs := []string{
 		root + "/uhn-runtime",
-		root + "/uhn-workspace",
+		root + "/uhn-workspace/sandbox/current",
+		root + "/uhn-workspace/blueprint/active",
 		root + "/uhn-node",
 		root + "/tmp",
 		root + "/bin",
