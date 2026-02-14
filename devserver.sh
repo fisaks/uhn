@@ -60,11 +60,13 @@ start_dev_env() {
     export SIM_PORT=$(echo "$PORTS" | sed -n 2p)
     
     # Write temporary config file with correct port
-    export EDGE_CONFIG_PATH="tmp/edge-config-dev.json"
-    export SIM_CONFIG_PATH="tmp/sim-config-dev.json"
-    export UHN_WORKSPACE_PATH="tmp/uhn-workspace"
-
-    mkdir -p tmp
+    export EDGE_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/edge-config-dev.json"
+    export SIM_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/sim-config-dev.json"
+    export UHN_WORKSPACE_PATH="/home/freddi/Projects/go-uhn/tmp/uhn-workspace"
+    export UHN_NODE_PATH="/home/freddi/.nvm/versions/node/v22.11.0"
+    export UHN_RUNTIME_PATH="/home/freddi/Projects/uxp" 
+    export TZ="Europe/Helsinki"
+    
     mkdir -p $UHN_WORKSPACE_PATH
     rm -f "$EDGE_CONFIG_PATH" "$SIM_CONFIG_PATH"
     jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$EDGE_CONFIG_PATH"
@@ -90,6 +92,9 @@ start_dev_env() {
         -e EDGE_CONFIG_PATH="$EDGE_CONFIG_PATH" \
         -e SIM_CONFIG_PATH="$SIM_CONFIG_PATH" \
         -e UHN_WORKSPACE_PATH="$UHN_WORKSPACE_PATH" \
+        -e "UHN_NODE_PATH=$UHN_NODE_PATH" \
+        -e "UHN_RUNTIME_PATH=$UHN_RUNTIME_PATH" \
+        -e "TZ=$TZ" \
         -e MQTT_URL="$MQTT_URL" \
         -e EDGE_NAME="$EDGE_NAME" \
         -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL"
