@@ -210,16 +210,18 @@ func (s *RuntimeSupervisor) scanStdout(pipe io.Reader, readyCh chan<- bool) {
 				readyCh <- true
 				continue
 			}
-			if kind == "log" {
+			if kind == "event" && cmd == "log" {
 				level, _ := msg["level"].(string)
-				text, _ := msg["msg"].(string)
+				text, _ := msg["message"].(string)
+				component, _ := msg["component"].(string)
+				prefix := "Rule runtime [" + component + "]: "
 				switch level {
 				case "error":
-					logging.Error("Rule runtime: "+text)
+					logging.Error(prefix + text)
 				case "warn":
-					logging.Warn("Rule runtime: "+text)
+					logging.Warn(prefix + text)
 				default:
-					logging.Info("Rule runtime: "+text)
+					logging.Info(prefix + text)
 				}
 				continue
 			}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -53,7 +54,8 @@ func supervise(cfg *config.SandboxConfig) error {
 	}
 
 	// Signal handling
-	sigCh := forwardSignals(pgid)
+	var signaled atomic.Bool
+	sigCh := forwardSignals(pgid, &signaled)
 	defer signal.Stop(sigCh)
 
 	// Wait for child
@@ -62,16 +64,25 @@ func supervise(cfg *config.SandboxConfig) error {
 	// Ensure cleanup
 	killProcessGroup(pgid)
 
+	// If we received SIGTERM (intentional stop), exit cleanly
+	if signaled.Load() {
+		util.Info("uhn-sandboxd", "sandbox stopped by SIGTERM, shutting down")
+		return nil
+	}
+
 	return err
 }
 
-func forwardSignals(pgid int) chan os.Signal {
+func forwardSignals(pgid int, signaled *atomic.Bool) chan os.Signal {
 
 	sigCh := make(chan os.Signal, 4)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
 	go func() {
-		for range sigCh {
+		for sig := range sigCh {
+			if sig == syscall.SIGTERM {
+				signaled.Store(true)
+			}
 			killProcessGroup(pgid)
 		}
 	}()
