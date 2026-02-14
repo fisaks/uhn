@@ -62,8 +62,10 @@ start_dev_env() {
     # Write temporary config file with correct port
     export EDGE_CONFIG_PATH="tmp/edge-config-dev.json"
     export SIM_CONFIG_PATH="tmp/sim-config-dev.json"
-    
+    export UHN_WORKSPACE_PATH="tmp/uhn-workspace"
+
     mkdir -p tmp
+    mkdir -p $UHN_WORKSPACE_PATH
     rm -f "$EDGE_CONFIG_PATH" "$SIM_CONFIG_PATH"
     jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$EDGE_CONFIG_PATH"
     jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_PATH"
@@ -87,6 +89,7 @@ start_dev_env() {
         -e SIM_PORT="$SIM_PORT" \
         -e EDGE_CONFIG_PATH="$EDGE_CONFIG_PATH" \
         -e SIM_CONFIG_PATH="$SIM_CONFIG_PATH" \
+        -e UHN_WORKSPACE_PATH="$UHN_WORKSPACE_PATH" \
         -e MQTT_URL="$MQTT_URL" \
         -e EDGE_NAME="$EDGE_NAME" \
         -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL"
