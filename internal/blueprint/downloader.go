@@ -23,15 +23,17 @@ const signedPayload = "GET /api/internal/download/blueprint"
 
 // BlueprintDownloader handles downloading, validating, and storing blueprint zip files.
 type BlueprintDownloader struct {
-	edgeName       string
-	keyPair        *encrypt.EdgeKeyPair
-	workspacePath  string
-	currentVersion *BlueprintVersionFile
-	masterPubKey   ed25519.PublicKey
-	downloading    bool
-	pending        *BlueprintActivatedMessage
-	httpClient     *http.Client
-	mu             sync.Mutex
+	edgeName              string
+	keyPair               *encrypt.EdgeKeyPair
+	workspacePath         string
+	currentVersion        *BlueprintVersionFile
+	masterPubKey          ed25519.PublicKey
+	downloading           bool
+	pending               *BlueprintActivatedMessage
+	httpClient            *http.Client
+	mu                    sync.Mutex
+	OnBlueprintReady       func() // called after successful download + extract
+	OnBlueprintDeactivated func() // called when blueprint is deactivated (null payload)
 }
 
 // NewBlueprintDownloader creates a new downloader and loads the current version from disk.
@@ -85,6 +87,9 @@ func (d *BlueprintDownloader) HandleBlueprintActivated(payload []byte) {
 	// Null payload means blueprint deactivated
 	if len(payload) == 0 || string(payload) == "null" {
 		logging.Info("Blueprint deactivated (null payload)")
+		if d.OnBlueprintDeactivated != nil {
+			d.OnBlueprintDeactivated()
+		}
 		return
 	}
 
@@ -268,6 +273,10 @@ func (d *BlueprintDownloader) downloadBlueprint(msg *BlueprintActivatedMessage) 
 		"path", finalPath,
 		"activeDir", activeDir,
 	)
+
+	if d.OnBlueprintReady != nil {
+		d.OnBlueprintReady()
+	}
 }
 
 func (d *BlueprintDownloader) extractBlueprint(zipPath, destDir string) error {

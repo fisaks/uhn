@@ -15,6 +15,7 @@ import (
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
+	"github.com/fisaks/uhn/internal/runtime"
 )
 
 func getenv(key, def string) string {
@@ -65,9 +66,21 @@ func main() {
 
 	workspacePath := getenv("UHN_WORKSPACE_PATH", "")
 	if workspacePath != "" {
+		supervisor := runtime.NewRuntimeSupervisor(workspacePath)
+		defer supervisor.Stop()
+
 		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
+		bpDownloader.OnBlueprintReady = func() { supervisor.Restart() }
+		bpDownloader.OnBlueprintDeactivated = func() { supervisor.Stop() }
+
 		edgeBroker.SubscribeMaster(ctx, "identity", messaging.AtLeastOnce, bpDownloader.IdentitySubscriber())
 		edgeBroker.SubscribeMaster(ctx, "blueprint/activated", messaging.AtLeastOnce, bpDownloader.BlueprintSubscriber())
+
+		// Auto-start if a blueprint was previously downloaded
+		if supervisor.HasActiveBlueprint() {
+			logging.Info("Found existing active blueprint, starting rule runtime")
+			supervisor.Start()
+		}
 	} else {
 		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader not activated")
 	}
