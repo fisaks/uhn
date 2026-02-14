@@ -35,6 +35,7 @@ type Broker interface {
 	PublishJSON(ctx context.Context, topic string, qos QoS, retain bool, v interface{}) error
 
 	Subscribe(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
+	SubscribeMaster(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
 	IsConnected() bool
 	AddOnConnectPublisher(id string, publisher OnConnectPublisher)
 	RemoveOnConnectPublisher(id string)
@@ -286,6 +287,49 @@ func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handle
 
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("subscribe timeout for %s", topic)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// SubscribeMaster subscribes to a master-scoped topic (uhn/master/<topic>).
+func (b *MsgBroker) SubscribeMaster(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error) {
+	if b.client == nil {
+		return nil, errors.New("client not initialized")
+	}
+	fullTopic := "uhn/master/" + topic
+
+	onMessageHandler := func(_ mqtt.Client, msg mqtt.Message) {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Error("mqtt handler panic", "ClientName", b.config.ClientName, "topic", msg.Topic(), "err", r)
+				}
+			}()
+			handler.OnMessage(ctx, msg.Topic(), msg.Payload())
+		}()
+	}
+	token := b.client.Subscribe(fullTopic, byte(qos), onMessageHandler)
+
+	timeout := b.config.SubscribeTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	select {
+	case <-token.Done():
+		if err := token.Error(); err != nil {
+			return nil, err
+		}
+
+		b.mu.Lock()
+		b.subs[fullTopic] = token
+		b.mu.Unlock()
+		logging.Info("Subscribed to master topic", "clientName", b.config.ClientName, "topic", fullTopic)
+		return &msgSubscription{broker: b, topic: fullTopic}, nil
+
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("subscribe timeout for %s", fullTopic)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

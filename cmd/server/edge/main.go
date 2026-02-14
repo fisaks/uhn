@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fisaks/uhn/internal/blueprint"
 	"github.com/fisaks/uhn/internal/catalog"
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/encrypt"
@@ -61,6 +62,15 @@ func main() {
 	edgeBroker.AddOnConnectPublisher("identity", keyPair)
 	edgeBroker.Connect(ctx)
 	defer edgeBroker.Close(ctx)
+
+	workspacePath := getenv("UHN_WORKSPACE_PATH", "")
+	if workspacePath != "" {
+		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
+		edgeBroker.SubscribeMaster(ctx, "identity", messaging.AtLeastOnce, bpDownloader.IdentitySubscriber())
+		edgeBroker.SubscribeMaster(ctx, "blueprint/activated", messaging.AtLeastOnce, bpDownloader.BlueprintSubscriber())
+	} else {
+		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader not activated")
+	}
 
 	pollers, err := poller.NewBusPollers(cfg, edgeBroker)
 	if err != nil {
