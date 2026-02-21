@@ -65,35 +65,65 @@ func main() {
 	defer edgeBroker.Close(ctx)
 
 	workspacePath := getenv("UHN_WORKSPACE_PATH", "")
+
 	if workspacePath != "" {
-		supervisor := runtime.NewRuntimeSupervisor(workspacePath)
+		// Create IPC bridge and signal tracker
+		ipcBridge := runtime.NewIPCBridge(edgeName, cfg.DevicesByName)
+		signalTracker := runtime.NewSignalTracker()
+
+		// Create supervisor with IPC bridge
+		supervisor := runtime.NewRuntimeSupervisor(workspacePath, ipcBridge)
 		defer supervisor.Stop()
 
+		// Wire blueprint downloader (same as before)
 		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
-		bpDownloader.OnBlueprintReady = func() { supervisor.Restart() }
+		bpDownloader.OnBlueprintReady = func() { supervisor.Restart(ctx) }
 		bpDownloader.OnBlueprintDeactivated = func() { supervisor.Stop() }
 
 		edgeBroker.SubscribeMaster(ctx, "identity", messaging.AtLeastOnce, bpDownloader.IdentitySubscriber())
 		edgeBroker.SubscribeMaster(ctx, "blueprint/activated", messaging.AtLeastOnce, bpDownloader.BlueprintSubscriber())
 
+		// Subscribe to signal/state/+ for incoming signals from master
+		signalSub := runtime.NewSignalSubscriber(ipcBridge, signalTracker)
+		edgeBroker.Subscribe(ctx, "signal/state/+", messaging.AtLeastOnce, signalSub)
+
+		// Wrap publisher so pollers feed state to both IPC bridge and MQTT
+		bridgedPublisher := runtime.NewBridgedPublisher(edgeBroker, ipcBridge)
+
+		// Create pollers with bridged publisher (must happen before action handler)
+		pollers, err := poller.NewBusPollers(cfg, bridgedPublisher)
+		if err != nil {
+			logging.Fatal("poller init", "error", err)
+		}
+
+		// Create and set action handler (needs pollers)
+		actionHandler := runtime.NewEdgeActionHandler(edgeName, pollers, edgeBroker, ipcBridge, signalTracker)
+		ipcBridge.SetActionHandler(actionHandler)
+
+		edgeBroker.StartEdgeSubscriber(ctx, pollers)
+
+		// Start all bus pollers
+		pollers.StartAllPollers(ctx)
+		defer pollers.StopAllPollers()
+
 		// Auto-start if a blueprint was previously downloaded
 		if supervisor.HasActiveBlueprint() {
 			logging.Info("Found existing active blueprint, starting rule runtime")
-			supervisor.Start()
+			supervisor.Start(ctx)
 		}
 	} else {
-		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader not activated")
-	}
+		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader and rule runtime not activated")
 
-	pollers, err := poller.NewBusPollers(cfg, edgeBroker)
-	if err != nil {
-		logging.Fatal("poller init: %v", err)
-	}
-	edgeBroker.StartEdgeSubscriber(ctx, pollers)
+		pollers, err := poller.NewBusPollers(cfg, edgeBroker)
+		if err != nil {
+			logging.Fatal("poller init", "error", err)
+		}
+		edgeBroker.StartEdgeSubscriber(ctx, pollers)
 
-	// Start all bus pollers (one goroutine per bus)
-	pollers.StartAllPollers(ctx)
-	defer pollers.StopAllPollers()
+		// Start all bus pollers
+		pollers.StartAllPollers(ctx)
+		defer pollers.StopAllPollers()
+	}
 
 	// Wait for SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)

@@ -25,6 +25,7 @@ type EdgeConfig struct {
 	PollIntervalMs    int                           `json:"pollIntervalMs"`              // global poll cadence
 	HeartbeatInterval int                           `json:"heartbeatInterval,omitempty"` // global heartbeat cadence
 	CommandBufferSize int                           `json:"commandBufferSize,omitempty"`
+	DevicesByName     map[string]*DeviceConfig      `json:"-"`                           // runtime only, built by linkGraph
 }
 
 type BusConfig struct {
@@ -304,6 +305,7 @@ func (c *EdgeConfig) linkGraph() error {
 		busMap[b.BusId] = b
 		b.Devices = nil // ensure empty
 	}
+	c.DevicesByName = make(map[string]*DeviceConfig)
 	// Link devices to catalog, and buses to devices
 	for busID, devs := range c.Devices {
 		bus, ok := busMap[busID]
@@ -320,6 +322,7 @@ func (c *EdgeConfig) linkGraph() error {
 			dev.Bus = bus
 			// Wire bus <-> device
 			bus.Devices = append(bus.Devices, dev)
+			c.DevicesByName[dev.Name] = dev
 		}
 	}
 	return nil

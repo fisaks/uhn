@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,18 +40,20 @@ type RuntimeSupervisor struct {
 	runID           int
 	restartAttempts int
 	mu              sync.Mutex
+	ipcBridge       *IPCBridge
 }
 
-func NewRuntimeSupervisor(workspacePath string) *RuntimeSupervisor {
+func NewRuntimeSupervisor(workspacePath string, ipcBridge *IPCBridge) *RuntimeSupervisor {
 	return &RuntimeSupervisor{
 		workspacePath: workspacePath,
 		sandboxPath:   getenvDefault("UHN_SANDBOX_PATH", "/usr/lib/uhn"),
 		nodePath:      getenvDefault("UHN_NODE_PATH", "/opt/node"),
 		runtimePath:   os.Getenv("UHN_RUNTIME_PATH"),
+		ipcBridge:     ipcBridge,
 	}
 }
 
-func (s *RuntimeSupervisor) Start() {
+func (s *RuntimeSupervisor) Start(ctx context.Context) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
@@ -64,7 +67,7 @@ func (s *RuntimeSupervisor) Start() {
 	currentRunID := s.runID
 	s.mu.Unlock()
 
-	s.startProcess(currentRunID)
+	s.startProcess(ctx, currentRunID)
 }
 
 func (s *RuntimeSupervisor) Stop() {
@@ -77,6 +80,7 @@ func (s *RuntimeSupervisor) Stop() {
 	s.stdin = nil
 	s.mu.Unlock()
 
+	s.ipcBridge.Reset()
 	if stdinPipe != nil {
 		stdinPipe.Close()
 	}
@@ -86,10 +90,10 @@ func (s *RuntimeSupervisor) Stop() {
 	s.removePIDFile()
 }
 
-func (s *RuntimeSupervisor) Restart() {
+func (s *RuntimeSupervisor) Restart(ctx context.Context) {
 	logging.Info("Restarting rule runtime")
 	s.Stop()
-	s.Start()
+	s.Start(ctx)
 }
 
 func (s *RuntimeSupervisor) IsRunning() bool {
@@ -98,7 +102,7 @@ func (s *RuntimeSupervisor) IsRunning() bool {
 	return s.running
 }
 
-func (s *RuntimeSupervisor) startProcess(forRunID int) {
+func (s *RuntimeSupervisor) startProcess(ctx context.Context, forRunID int) {
 	launcherPath := filepath.Join(s.sandboxPath, "uhn-sandbox-launch")
 	if _, err := os.Stat(launcherPath); err != nil {
 		logging.Error("Sandbox launcher not found, rule runtime will not start",
@@ -161,6 +165,8 @@ func (s *RuntimeSupervisor) startProcess(forRunID int) {
 	s.running = true
 	s.mu.Unlock()
 
+	s.ipcBridge.SetStdin(stdinPipe)
+
 	s.writePIDFile(cmd.Process.Pid)
 
 	logging.Info("Rule runtime process started", "pid", cmd.Process.Pid)
@@ -170,7 +176,7 @@ func (s *RuntimeSupervisor) startProcess(forRunID int) {
 
 	// Wait for ready signal from stdout
 	readyCh := make(chan bool, 1)
-	go s.scanStdout(stdoutPipe, readyCh)
+	go s.ipcBridge.ProcessStdout(ctx, stdoutPipe, readyCh)
 
 	select {
 	case ready := <-readyCh:
@@ -193,45 +199,7 @@ func (s *RuntimeSupervisor) startProcess(forRunID int) {
 	}
 
 	// Spawn restart watcher
-	go s.watchForRestart(cmd, forRunID)
-}
-
-func (s *RuntimeSupervisor) scanStdout(pipe io.Reader, readyCh chan<- bool) {
-	scanner := bufio.NewScanner(pipe)
-	readySent := false
-	for scanner.Scan() {
-		line := scanner.Text()
-		var msg map[string]any
-		if err := json.Unmarshal([]byte(line), &msg); err == nil {
-			kind, _ := msg["kind"].(string)
-			cmd, _ := msg["cmd"].(string)
-			if kind == "event" && cmd == "ready" && !readySent {
-				readySent = true
-				readyCh <- true
-				continue
-			}
-			if kind == "event" && cmd == "log" {
-				level, _ := msg["level"].(string)
-				text, _ := msg["message"].(string)
-				component, _ := msg["component"].(string)
-				prefix := "Rule runtime [" + component + "]: "
-				switch level {
-				case "error":
-					logging.Error(prefix + text)
-				case "warn":
-					logging.Warn(prefix + text)
-				default:
-					logging.Info(prefix + text)
-				}
-				continue
-			}
-		}
-		// Non-JSON or unrecognized JSON — log as info
-		logging.Info("Rule runtime stdout", "line", line)
-	}
-	if !readySent {
-		readyCh <- false
-	}
+	go s.watchForRestart(ctx, cmd, forRunID)
 }
 
 func (s *RuntimeSupervisor) pipeStderr(pipe io.Reader) {
@@ -241,7 +209,7 @@ func (s *RuntimeSupervisor) pipeStderr(pipe io.Reader) {
 	}
 }
 
-func (s *RuntimeSupervisor) watchForRestart(cmd *exec.Cmd, forRunID int) {
+func (s *RuntimeSupervisor) watchForRestart(ctx context.Context, cmd *exec.Cmd, forRunID int) {
 	cmd.Wait()
 
 	s.mu.Lock()
@@ -277,7 +245,7 @@ func (s *RuntimeSupervisor) watchForRestart(cmd *exec.Cmd, forRunID int) {
 	}
 	s.mu.Unlock()
 
-	s.startProcess(currentRunID)
+	s.startProcess(ctx, currentRunID)
 }
 
 // buildSandboxConfig determines the runtime mode and constructs the SandboxConfig.
