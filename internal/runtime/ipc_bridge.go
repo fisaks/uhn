@@ -46,8 +46,9 @@ type IPCBridge struct {
 	pendingMu       sync.Mutex
 	pendingRequests map[string]chan json.RawMessage
 
-	actionHandler  ActionHandler
-	timerPublisher *TimerPublisher
+	actionHandler        ActionHandler
+	timerPublisher       *TimerPublisher
+	timerStateSubscriber *TimerStateSubscriber
 }
 
 // NewIPCBridge creates a new IPC bridge for the given edge.
@@ -70,6 +71,11 @@ func (b *IPCBridge) SetActionHandler(handler ActionHandler) {
 // SetTimerPublisher sets the timer publisher for MQTT state publishing.
 func (b *IPCBridge) SetTimerPublisher(pub *TimerPublisher) {
 	b.timerPublisher = pub
+}
+
+// SetTimerStateSubscriber sets the subscriber used to restore timers on restart.
+func (b *IPCBridge) SetTimerStateSubscriber(sub *TimerStateSubscriber) {
+	b.timerStateSubscriber = sub
 }
 
 // SetStdin provides the stdin writer for the runtime process.
@@ -148,7 +154,8 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 }
 
 // onReady is called when the runtime sends the "ready" event.
-// It requests the resource list and sends the initial full state update.
+// It requests the resource list, restores retained timer state, and sends the
+// initial full state update followed by timer restore commands.
 func (b *IPCBridge) onReady(ctx context.Context) {
 	resources, err := b.requestListResources(ctx)
 	if err != nil {
@@ -163,7 +170,76 @@ func (b *IPCBridge) onReady(ctx context.Context) {
 
 	logging.Info("IPC bridge resource map built", "resources", len(rm.byResourceID))
 
+	// Apply retained timer states to computedState before sending the full update
+	timerCommands := b.prepareTimerRestoration()
+
 	b.sendFullStateUpdate()
+
+	// Send timer restore commands AFTER full state update so the runtime
+	// has baseline state before timers start ticking
+	for _, cmd := range timerCommands {
+		if err := b.writeJSON(cmd); err != nil {
+			logging.Error("Failed to send timer restore command", "resourceId", cmd.Payload.ResourceID, "error", err)
+		}
+	}
+}
+
+// prepareTimerRestoration drains buffered retained timer states, applies them to
+// computedState, and returns timerCommand messages to send after stateFullUpdate.
+func (b *IPCBridge) prepareTimerRestoration() []TimerCommand {
+	if b.timerStateSubscriber == nil {
+		return nil
+	}
+
+	retained := b.timerStateSubscriber.DrainBuffered()
+	if len(retained) == 0 {
+		return nil
+	}
+
+	now := time.Now().UnixMilli()
+	var commands []TimerCommand
+
+	b.stateMu.Lock()
+	for _, t := range retained {
+		if t.Active {
+			// Timer was active — set computed state to true
+			b.computedState[t.ResourceID] = true
+
+			remaining := t.StopAt - now
+			var durationMs int64
+			if remaining > 0 {
+				// Timer still has time left — resume for the remaining duration
+				durationMs = remaining
+				logging.Info("Timer restoration: resuming active timer",
+					"resourceId", t.ResourceID, "remainingMs", remaining)
+			} else {
+				// Timer expired during downtime — fire with 1ms to create the
+				// true→false transition so "deactivated" events trigger
+				durationMs = 1
+				logging.Info("Timer restoration: expired during downtime, firing immediately",
+					"resourceId", t.ResourceID, "expiredAgoMs", -remaining)
+			}
+
+			commands = append(commands, TimerCommand{
+				Kind: "event",
+				Cmd:  "timerCommand",
+				Payload: TimerCommandPayload{
+					ResourceID: t.ResourceID,
+					Action:     "start",
+					DurationMs: durationMs,
+					Mode:       "restart",
+				},
+			})
+		} else {
+			// Timer was inactive — include in baseline state
+			b.computedState[t.ResourceID] = false
+			logging.Debug("Timer restoration: inactive timer", "resourceId", t.ResourceID)
+		}
+	}
+	b.stateMu.Unlock()
+
+	logging.Info("Timer restoration complete", "retained", len(retained), "commands", len(commands))
+	return commands
 }
 
 // HandleDeviceState converts polled device state into per-resource updates and
@@ -467,4 +543,10 @@ func (b *IPCBridge) Reset() {
 		delete(b.pendingRequests, id)
 	}
 	b.pendingMu.Unlock()
+
+	// Re-subscribe to timer/state/+ so retained messages are re-captured
+	// for the next runtime startup
+	if b.timerStateSubscriber != nil {
+		b.timerStateSubscriber.Resubscribe(context.Background())
+	}
 }

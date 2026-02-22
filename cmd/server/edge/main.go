@@ -87,6 +87,11 @@ func main() {
 		timerCmdSub := runtime.NewTimerCmdSubscriber(ipcBridge, signalTracker)
 		edgeBroker.Subscribe(ctx, "timer/cmd/+", messaging.AtLeastOnce, timerCmdSub)
 
+		// Subscribe to timer/state/+ to capture retained timer state for restoration on restart
+		timerStateSub := runtime.NewTimerStateSubscriber(signalTracker, edgeBroker)
+		timerStateSub.Subscribe(ctx)
+		ipcBridge.SetTimerStateSubscriber(timerStateSub)
+
 		// Wrap publisher so pollers feed state to both IPC bridge and MQTT
 		bridgedPublisher := runtime.NewBridgedPublisher(edgeBroker, ipcBridge)
 
