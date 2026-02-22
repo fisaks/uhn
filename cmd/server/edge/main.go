@@ -80,6 +80,13 @@ func main() {
 		signalSub := runtime.NewSignalSubscriber(ipcBridge, signalTracker)
 		edgeBroker.Subscribe(ctx, "signal/state/+", messaging.AtLeastOnce, signalSub)
 
+		// Timer MQTT: publish timer state and receive timer commands from master
+		timerPublisher := runtime.NewTimerPublisher(edgeBroker, signalTracker)
+		ipcBridge.SetTimerPublisher(timerPublisher)
+
+		timerCmdSub := runtime.NewTimerCmdSubscriber(ipcBridge, signalTracker)
+		edgeBroker.Subscribe(ctx, "timer/cmd/+", messaging.AtLeastOnce, timerCmdSub)
+
 		// Wrap publisher so pollers feed state to both IPC bridge and MQTT
 		bridgedPublisher := runtime.NewBridgedPublisher(edgeBroker, ipcBridge)
 

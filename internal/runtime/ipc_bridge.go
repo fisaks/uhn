@@ -46,7 +46,8 @@ type IPCBridge struct {
 	pendingMu       sync.Mutex
 	pendingRequests map[string]chan json.RawMessage
 
-	actionHandler ActionHandler
+	actionHandler  ActionHandler
+	timerPublisher *TimerPublisher
 }
 
 // NewIPCBridge creates a new IPC bridge for the given edge.
@@ -64,6 +65,11 @@ func NewIPCBridge(edgeName string, deviceMap map[string]*config.DeviceConfig) *I
 // SetActionHandler sets the action handler (called after pollers are created).
 func (b *IPCBridge) SetActionHandler(handler ActionHandler) {
 	b.actionHandler = handler
+}
+
+// SetTimerPublisher sets the timer publisher for MQTT state publishing.
+func (b *IPCBridge) SetTimerPublisher(pub *TimerPublisher) {
+	b.timerPublisher = pub
 }
 
 // SetStdin provides the stdin writer for the runtime process.
@@ -110,6 +116,10 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 		// Resource missing — rule tried to access a resource with no state on this edge
 		case msg.Kind == "event" && msg.Cmd == "resourceMissing":
 			b.handleResourceMissing(line)
+
+		// Timer state changed event
+		case msg.Kind == "event" && msg.Cmd == "timerStateChanged":
+			b.handleTimerStateChanged(ctx, line)
 
 		// Actions event
 		case msg.Kind == "event" && msg.Cmd == "actions":
@@ -352,6 +362,43 @@ func (b *IPCBridge) handleResourceMissing(raw []byte) {
 		"resourceType", msg.ResourceType,
 		"reason", msg.Reason,
 	)
+}
+
+// handleTimerStateChanged publishes timer state to MQTT and updates local computed state.
+func (b *IPCBridge) handleTimerStateChanged(ctx context.Context, raw []byte) {
+	var event TimerStateChangedEvent
+	if err := json.Unmarshal(raw, &event); err != nil {
+		logging.Error("Failed to parse timerStateChanged event", "error", err)
+		return
+	}
+
+	state := event.Payload
+	timestamp := time.Now().UnixMilli()
+
+	// Update local computed state so the runtime sees timer state
+	var value any
+	if state.Active {
+		value = true
+	} else {
+		value = false
+	}
+	b.stateMu.Lock()
+	prevComputed := b.computedState[state.ID]
+	b.computedState[state.ID] = value
+	b.stateMu.Unlock()
+
+	if value != prevComputed {
+		b.sendStateUpdate(RuntimeResourceState{
+			ResourceID: state.ID,
+			Value:      value,
+			Timestamp:  timestamp,
+		})
+	}
+
+	// Publish to MQTT
+	if b.timerPublisher != nil {
+		b.timerPublisher.Publish(ctx, state, timestamp)
+	}
 }
 
 // handleActions processes an actions event from the runtime.

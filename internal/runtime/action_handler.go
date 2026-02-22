@@ -50,6 +50,10 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 		h.handleSetOutput(ctx, action, resource)
 	case "emitSignal":
 		h.handleEmitSignal(ctx, action, resource)
+	case "timerStart", "timerClear":
+		// Timer actions are only emitted in master mode; they shouldn't arrive
+		// on the edge action handler. Log a warning if they do.
+		logging.Warn("Timer action received on edge action handler (unexpected)", "type", action.Type, "resourceId", action.ResourceID)
 	default:
 		logging.Warn("Unknown action type", "type", action.Type, "resourceId", action.ResourceID)
 	}

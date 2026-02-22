@@ -84,3 +84,53 @@ type LogEvent struct {
 	Component string `json:"component"`
 	Message   string `json:"message"`
 }
+
+// --- Timer IPC types ---
+
+// TimerStateChangedEvent is emitted by the runtime when a timer changes state.
+type TimerStateChangedEvent struct {
+	Kind    string            `json:"kind"` // "event"
+	Cmd     string            `json:"cmd"`  // "timerStateChanged"
+	Payload TimerRuntimeState `json:"payload"`
+}
+
+// TimerRuntimeState represents the state of a timer resource.
+type TimerRuntimeState struct {
+	ID        string `json:"id"`
+	Active    bool   `json:"active"`
+	StartedAt int64  `json:"startedAt"`
+	StopAt    int64  `json:"stopAt"`
+}
+
+// TimerMQTTPayload is the JSON payload for timer state MQTT messages.
+type TimerMQTTPayload struct {
+	ResourceID string `json:"resourceId"`
+	Active     bool   `json:"active"`
+	StartedAt  int64  `json:"startedAt"`
+	StopAt     int64  `json:"stopAt"`
+	Timestamp  int64  `json:"timestamp"`
+}
+
+// TimerCommandMQTTPayload is the JSON payload for timer command MQTT messages.
+type TimerCommandMQTTPayload struct {
+	ResourceID string `json:"resourceId"`
+	Action     string `json:"action"` // "start" | "clear"
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
+	Timestamp  int64  `json:"timestamp"`
+}
+
+// TimerCommand is the IPC command sent to the runtime to control a timer.
+type TimerCommand struct {
+	Kind    string              `json:"kind"` // "event"
+	Cmd     string              `json:"cmd"`  // "timerCommand"
+	Payload TimerCommandPayload `json:"payload"`
+}
+
+// TimerCommandPayload is the payload of a TimerCommand.
+type TimerCommandPayload struct {
+	ResourceID string `json:"resourceId"`
+	Action     string `json:"action"` // "start" | "clear"
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
+}
