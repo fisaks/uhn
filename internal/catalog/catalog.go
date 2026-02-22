@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/fisaks/uhn/internal/config"
-	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 )
 
@@ -33,7 +32,7 @@ func NewEdgeCatalog(cfg *config.EdgeConfig) *Catalog {
 	}
 	return &cat
 }
-func (catalog *Catalog) buildEdgeCatalog() (*EdgeCatalogMessage, error) {
+func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 	var devices []DeviceSummary
 	for _, devs := range catalog.cfg.Devices {
 		for _, d := range devs {
@@ -49,20 +48,14 @@ func (catalog *Catalog) buildEdgeCatalog() (*EdgeCatalogMessage, error) {
 			})
 		}
 	}
-	return &EdgeCatalogMessage{
-		Devices: devices,
-	}, nil
+	return &EdgeCatalogMessage{Devices: devices}
 }
-func (catalog *Catalog) OnConnectPublish(ctx context.Context) (*messaging.ConnectMessage, error) {
-	msg, err := catalog.buildEdgeCatalog()
-	if err != nil {
-		logging.Fatal("Failed to build catalog message", "error", err)
-	}
-	return &messaging.ConnectMessage{
 
+func (catalog *Catalog) OnConnectPublish(ctx context.Context) (*messaging.ConnectMessage, error) {
+	return &messaging.ConnectMessage{
 		Topic:   "catalog",
 		Qos:     messaging.AtLeastOnce,
 		Retain:  true,
-		Payload: msg,
+		Payload: catalog.buildEdgeCatalog(),
 	}, nil
 }

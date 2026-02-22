@@ -33,13 +33,6 @@ type BusPoller interface {
 	GetDevices() []*config.DeviceConfig
 	GetBusConfig() *config.BusConfig
 }
-type PollResult struct {
-	State     uhn.DeviceState
-	Errors    []string
-	Partial   bool
-	AllFailed bool
-}
-
 func NewSerialBusPoller(bus *config.BusConfig, edgePublisher uhn.EdgePublisher) (BusPoller, error) {
 
 	var deviceClient DeviceClient
@@ -129,20 +122,18 @@ func (p *SerialBusPoller) poller(ctx context.Context) {
 }
 
 func (p *SerialBusPoller) pollOnce(ctx context.Context) {
-
 	for _, device := range p.Devices {
-		ok, pollResult := p.tryPollDevice(ctx, device)
-		if !ok {
-			logging.Warn("Poll failed", "bus", p.Bus.BusId, "device", device.Name, "errors", pollResult.Errors)
+		state := p.pollDevice(ctx, device)
+		if len(state.Errors) > 0 {
+			logging.Warn("Poll errors", "bus", p.Bus.BusId, "device", device.Name, "errors", state.Errors)
 		}
-
-		err := p.edgePublisher.PublishDeviceState(ctx, pollResult.State)
-		if err != nil {
+		if err := p.edgePublisher.PublishDeviceState(ctx, state); err != nil {
 			logging.Warn("Failed to publish state", "bus", p.Bus.BusId, "device", device.Name, "error", err)
 		}
 	}
 }
-func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.DeviceConfig) (bool, PollResult) {
+
+func (p *SerialBusPoller) pollDevice(ctx context.Context, device *config.DeviceConfig) uhn.DeviceState {
 	now := time.Now()
 	state := uhn.DeviceState{
 		Timestamp:   now,
@@ -153,6 +144,7 @@ func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.Devi
 	var errors []string
 	successfulReads := 0
 	failedFCs := 0
+
 	// ===== FC1: Coils (Digital Outputs) =====
 	if r := device.CatalogSpec.DigitalOutputs; r != nil && r.Count > 0 {
 		data, err := p.client.ReadDeviceDigitalOutput(ctx, device)
@@ -165,6 +157,7 @@ func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.Devi
 			successfulReads++
 		}
 	}
+
 	// ===== FC2: Discrete Inputs (Digital Inputs) =====
 	if r := device.CatalogSpec.DigitalInputs; r != nil && r.Count > 0 {
 		data, err := p.client.ReadDeviceDigitalInput(ctx, device)
@@ -204,7 +197,6 @@ func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.Devi
 		}
 	}
 
-	// Status
 	state.Errors = errors
 	if successfulReads == 0 {
 		state.Status = "error"
@@ -212,11 +204,5 @@ func (p *SerialBusPoller) tryPollDevice(ctx context.Context, device *config.Devi
 		state.Status = "partial_error"
 	}
 
-	return successfulReads > 0, PollResult{
-		State:     state,
-		Errors:    errors,
-		Partial:   failedFCs > 0 && successfulReads > 0,
-		AllFailed: successfulReads == 0,
-	}
-
+	return state
 }

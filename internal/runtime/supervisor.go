@@ -18,6 +18,7 @@ import (
 
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/util"
 )
 
 const (
@@ -46,8 +47,8 @@ type RuntimeSupervisor struct {
 func NewRuntimeSupervisor(workspacePath string, ipcBridge *IPCBridge) *RuntimeSupervisor {
 	return &RuntimeSupervisor{
 		workspacePath: workspacePath,
-		sandboxPath:   getenvDefault("UHN_SANDBOX_PATH", "/usr/lib/uhn"),
-		nodePath:      getenvDefault("UHN_NODE_PATH", "/opt/node"),
+		sandboxPath:   util.GetEnvDefault("UHN_SANDBOX_PATH", "/usr/lib/uhn"),
+		nodePath:      util.GetEnvDefault("UHN_NODE_PATH", "/opt/node"),
 		runtimePath:   os.Getenv("UHN_RUNTIME_PATH"),
 		ipcBridge:     ipcBridge,
 	}
@@ -260,7 +261,7 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 
 	cfg := &config.SandboxConfig{
 		Cwd:       "/uhn-runtime/packages/uhn-rule-runtime",
-		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + getenvDefault("TZ", "UTC")},
+		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + util.GetEnvDefault("TZ", "UTC")},
 		Limits:    &config.Limits{MemoryBytes: 512 * 1024 * 1024, MaxPids: 254},
 		RunAsUser: currentUser.Username,
 		Network:   config.NetworkLoopback,
@@ -423,9 +424,3 @@ func (s *RuntimeSupervisor) HasActiveBlueprint() bool {
 	return true
 }
 
-func getenvDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}

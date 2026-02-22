@@ -19,9 +19,7 @@ type EdgeBroker interface {
 }
 type edgeBroker struct {
 	Broker
-	uhn.EdgePublisher
 	uhn.EdgeSubscriber
-	Subscriber
 	edgeState         state.EdgeStateStore
 	heartbeatInterval time.Duration
 }
@@ -29,15 +27,14 @@ type edgeBroker struct {
 func NewEdgeBroker(cfg BrokerConfig, catalog OnConnectPublisher, heartbeatInterval time.Duration) EdgeBroker {
 	broker := NewBroker(cfg)
 	edgeSate := state.NewEdgeStateStore()
-	edgeBroker := &edgeBroker{
+	eb := &edgeBroker{
 		Broker:            broker,
 		heartbeatInterval: heartbeatInterval,
 		edgeState:         edgeSate,
 	}
 
-	edgeBroker.AddOnConnectPublisher("catalog", catalog)
-	edgeBroker.EdgePublisher = edgeBroker
-	return edgeBroker
+	eb.AddOnConnectPublisher("catalog", catalog)
+	return eb
 }
 
 func (b *edgeBroker) StartEdgeSubscriber(ctx context.Context, subscriber uhn.EdgeSubscriber) {

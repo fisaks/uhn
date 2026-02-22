@@ -117,23 +117,12 @@ func (t CatalogTimings) SettleAfterWrite() time.Duration {
    ========================= */
 
 func LoadEdgeConfig(path string) (*EdgeConfig, error) {
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	clean := stripJSONComments(raw)
-
-	dec := json.NewDecoder(strings.NewReader(string(clean)))
-	dec.DisallowUnknownFields()
-
-	var cfg EdgeConfig
-	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
-	}
-	return &cfg, nil
+	defer f.Close()
+	return LoadEdgeConfigFromReader(f)
 }
 
 func (c *EdgeConfig) Validate() error {

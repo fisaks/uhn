@@ -52,54 +52,27 @@ func (p *busPollers) OnCommand(ctx context.Context, command uhn.IncomingCommand)
 }
 
 func (p *SerialBusPoller) handleCommand(ctx context.Context, c uhn.DeviceCommand) {
-	// Resolve device -> unitId
-
-	/*if err := p.ensureConnected(ctx); err != nil {
-		PublishEvent(p.Publisher.Client, p.Publisher.TopicPrefix, c.Device.Name, "commandError",
-			map[string]any{"reason": "connect", "error": err.Error()})
-		return
-	}*/
-
 	switch strings.ToLower(c.Action) {
 	case "setdigitaloutput":
+		p.scheduler.ClearPulse(c)
+
 		switch c.Value {
 		case 0, 1:
-			val := false
-			if c.Value == 1 {
-				val = true
-			}
-			p.scheduler.ClearPulse(c)
-			p.client.WriteSingleDigitalOutput(ctx, c.Device, c.Address, val)
-
-			if c.PulseMs > 0 {
-				pulseCmd := c // copy
-				pulseCmd.PulseMs = 0
-				if c.Value == 1 {
-					pulseCmd.Value = 0
-				} else {
-					pulseCmd.Value = 1
-				}
-				p.scheduler.SchedulePulse(pulseCmd, time.Duration(c.PulseMs)*time.Millisecond)
-
-			}
-
+			p.client.WriteSingleDigitalOutput(ctx, c.Device, c.Address, c.Value == 1)
 		case 2:
-			p.scheduler.ClearPulse(c)
 			p.client.ToggleSingleDigitalOutput(ctx, c.Device, c.Address)
-			if c.PulseMs > 0 {
-				pulseCmd := c // copy
-				pulseCmd.PulseMs = 0
+		}
 
-				p.scheduler.SchedulePulse(pulseCmd, time.Duration(c.PulseMs)*time.Millisecond)
+		if c.PulseMs > 0 {
+			pulseCmd := c
+			pulseCmd.PulseMs = 0
+			if c.Value == 0 || c.Value == 1 {
+				pulseCmd.Value = 1 - c.Value
 			}
-
+			p.scheduler.SchedulePulse(pulseCmd, time.Duration(c.PulseMs)*time.Millisecond)
 		}
 
 	default:
 		logging.Warn("Unknown command action", "action", c.Action)
-		//PublishEvent(p.Publisher.Client, p.Publisher.TopicPrefix, c.Device.Name, "commandError",
-		//	map[string]any{"reason": "unknown action", "action": c.Action})
-		return
 	}
-
 }

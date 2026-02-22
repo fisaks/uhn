@@ -16,20 +16,13 @@ import (
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
 	"github.com/fisaks/uhn/internal/runtime"
+	"github.com/fisaks/uhn/internal/util"
 )
 
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
 func main() {
-
-	mqttURL := getenv("MQTT_URL", "tcp://localhost:1883")
-	path := getenv("EDGE_CONFIG_PATH", "/etc/uhn/edge-config.json")
-	edgeName := getenv("EDGE_NAME", "edge1")
+	mqttURL := util.GetEnvDefault("MQTT_URL", "tcp://localhost:1883")
+	path := util.GetEnvDefault("EDGE_CONFIG_PATH", "/etc/uhn/edge-config.json")
+	edgeName := util.GetEnvDefault("EDGE_NAME", "edge1")
 	topicPrefix := "uhn/" + edgeName
 
 	logging.Init()
@@ -64,7 +57,7 @@ func main() {
 	edgeBroker.Connect(ctx)
 	defer edgeBroker.Close(ctx)
 
-	workspacePath := getenv("UHN_WORKSPACE_PATH", "")
+	workspacePath := util.GetEnvDefault("UHN_WORKSPACE_PATH", "")
 
 	if workspacePath != "" {
 		// Create IPC bridge and signal tracker

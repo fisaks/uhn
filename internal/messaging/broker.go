@@ -249,47 +249,12 @@ func (b *MsgBroker) PublishJSON(ctx context.Context, topic string, qos QoS, reta
 	return b.Publish(ctx, topic, qos, retain, data)
 }
 
-// Subscribe registers handler and waits for SUBACK with timeout
+// Subscribe registers handler and waits for SUBACK with timeout.
 func (b *MsgBroker) Subscribe(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error) {
 	if b.client == nil {
 		return nil, errors.New("client not initialized")
 	}
-	fullTopic := b.prefixTopic(topic)
-	// wrapper that converts paho message to our handler and logs panics without crashing
-	onMessageHandler := func(_ mqtt.Client, msg mqtt.Message) {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logging.Error("mqtt handler panic", "ClientName", b.config.ClientName, "topic", msg.Topic(), "err", r)
-				}
-			}()
-			handler.OnMessage(ctx, msg.Topic(), msg.Payload())
-		}()
-	}
-	token := b.client.Subscribe(fullTopic, byte(qos), onMessageHandler)
-
-	timeout := b.config.SubscribeTimeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-
-	select {
-	case <-token.Done():
-		if err := token.Error(); err != nil {
-			return nil, err
-		}
-
-		b.mu.Lock()
-		b.subs[topic] = token
-		b.mu.Unlock()
-		logging.Info("Subscribed to topic", "clientName", b.config.ClientName, "topic", fullTopic)
-		return &msgSubscription{broker: b, topic: topic}, nil
-
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("subscribe timeout for %s", topic)
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return b.subscribeRaw(ctx, b.prefixTopic(topic), qos, handler)
 }
 
 // SubscribeMaster subscribes to a master-scoped topic (uhn/master/<topic>).
@@ -297,8 +262,10 @@ func (b *MsgBroker) SubscribeMaster(ctx context.Context, topic string, qos QoS, 
 	if b.client == nil {
 		return nil, errors.New("client not initialized")
 	}
-	fullTopic := "uhn/master/" + topic
+	return b.subscribeRaw(ctx, "uhn/master/"+topic, qos, handler)
+}
 
+func (b *MsgBroker) subscribeRaw(ctx context.Context, fullTopic string, qos QoS, handler Subscriber) (Subscription, error) {
 	onMessageHandler := func(_ mqtt.Client, msg mqtt.Message) {
 		go func() {
 			defer func() {
@@ -321,13 +288,11 @@ func (b *MsgBroker) SubscribeMaster(ctx context.Context, topic string, qos QoS, 
 		if err := token.Error(); err != nil {
 			return nil, err
 		}
-
 		b.mu.Lock()
 		b.subs[fullTopic] = token
 		b.mu.Unlock()
-		logging.Info("Subscribed to master topic", "clientName", b.config.ClientName, "topic", fullTopic)
+		logging.Info("Subscribed to topic", "clientName", b.config.ClientName, "topic", fullTopic)
 		return &msgSubscription{broker: b, topic: fullTopic}, nil
-
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("subscribe timeout for %s", fullTopic)
 	case <-ctx.Done():

@@ -40,7 +40,7 @@ func ExtractResourceStates(
 // and maps them to resource IDs via the resource map.
 func extractPins(
 	out []RuntimeResourceState,
-	bytes []byte,
+	data []byte,
 	pinRange *config.Range,
 	deviceName string,
 	resourceType string,
@@ -48,26 +48,23 @@ func extractPins(
 	timestamp int64,
 ) []RuntimeResourceState {
 	start := int(pinRange.Start)
-	maxFromPayload := len(bytes) * 8
-	end := start + int(pinRange.Count)
-	if end > maxFromPayload {
-		end = maxFromPayload
-	}
+	count := int(pinRange.Count)
 
-	for pin := start; pin < end; pin++ {
-		byteIndex := pin / 8
-		bit := pin % 8
+	for i := 0; i < count; i++ {
+		byteIndex := i / 8
+		bit := i % 8
 
-		if byteIndex >= len(bytes) {
-			continue
+		if byteIndex >= len(data) {
+			break
 		}
 
+		pin := start + i
 		resourceID, ok := resourceMap.LookupResourceID(deviceName, resourceType, pin)
 		if !ok {
 			continue
 		}
 
-		value := (bytes[byteIndex] & (1 << bit)) != 0
+		value := (data[byteIndex] & (1 << bit)) != 0
 
 		out = append(out, RuntimeResourceState{
 			ResourceID: resourceID,

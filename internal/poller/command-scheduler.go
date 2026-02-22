@@ -9,10 +9,6 @@ import (
 )
 
 type CommandScheduler interface {
-//		ScheduleAfter(deviceName string, key string, cmd DeviceCommand, d time.Duration, opts ScheduleOptions) (string, error)
-//	ScheduleAt(deviceName string, key string, cmd DeviceCommand, t time.Time, opts ScheduleOptions) (string, error)
-//	ScheduleEvery(deviceName string, key string, cmd DeviceCommand, interval time.Duration, opts ScheduleOptions) (string, error)
-
 	Schedule(cmd uhn.DeviceCommand, delay time.Duration) (id string, err error)
 	SchedulePulse(cmd uhn.DeviceCommand, delay time.Duration) (err error)
 	ClearPulse(cmd uhn.DeviceCommand) bool
@@ -90,6 +86,10 @@ func (cs *commandScheduler) Stop() {
 	for id, timer := range cs.timers {
 		timer.Stop()
 		delete(cs.timers, id)
+	}
+	for id, timer := range cs.pulses {
+		timer.Stop()
+		delete(cs.pulses, id)
 	}
 	logging.Debug("Command scheduler stopped")
 }

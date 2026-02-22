@@ -276,151 +276,68 @@ func (m *ModbusDeviceClient) ReadSingleDigitalInput(ctx context.Context, device 
 	return (data[0] & 0x01) != 0, nil
 }
 
-// ===== FC1: Coils (Digital Outputs) =====
+func digitalCap(count uint16) int { return int(count+7) / 8 }
+func analogCap(count uint16) int  { return int(count) * 2 }
+
 func (m *ModbusDeviceClient) ReadDeviceDigitalOutput(ctx context.Context, device *config.DeviceConfig) ([]byte, error) {
-	deviceSpec := device.CatalogSpec
-	deviceRange := deviceSpec.DigitalOutputs
-	deviceLimits := deviceSpec.Limits
-
-	if deviceLimits.MaxDigitalChunkSize >= deviceRange.Count {
-		return m.withClient(ctx, device, READ, func() ([]byte, error) {
-			return m.client.ReadCoils(deviceRange.Start, deviceRange.Count)
-		})
-	}
-
-	data, err := m.readDeviceDigitalBitsChunked(ctx, device, deviceRange.Start, deviceRange.Count, deviceLimits.MaxDigitalChunkSize,
-		func(addr, qty uint16) ([]byte, error) {
-			return m.withClient(ctx, device, READ, func() ([]byte, error) { return m.client.ReadCoils(addr, qty) })
-		})
-
-	return data, err
+	spec := device.CatalogSpec
+	return m.readDeviceRange(ctx, device, spec.DigitalOutputs, spec.Limits.MaxDigitalChunkSize, digitalCap, m.client.ReadCoils)
 }
 
-// ===== FC2: Discrete Inputs (Digital Inputs) =====
 func (m *ModbusDeviceClient) ReadDeviceDigitalInput(ctx context.Context, device *config.DeviceConfig) ([]byte, error) {
-	deviceSpec := device.CatalogSpec
-	deviceRange := deviceSpec.DigitalInputs
-	deviceLimits := deviceSpec.Limits
-
-	if deviceLimits.MaxDigitalChunkSize >= deviceRange.Count {
-		return m.withClient(ctx, device, READ, func() ([]byte, error) {
-			return m.client.ReadDiscreteInputs(deviceRange.Start, deviceRange.Count)
-		})
-	}
-
-	data, err := m.readDeviceDigitalBitsChunked(ctx, device, deviceRange.Start, deviceRange.Count, deviceLimits.MaxDigitalChunkSize,
-		func(addr, qty uint16) ([]byte, error) {
-			return m.withClient(ctx, device, READ, func() ([]byte, error) { return m.client.ReadDiscreteInputs(addr, qty) })
-		})
-
-	return data, err
+	spec := device.CatalogSpec
+	return m.readDeviceRange(ctx, device, spec.DigitalInputs, spec.Limits.MaxDigitalChunkSize, digitalCap, m.client.ReadDiscreteInputs)
 }
 
-// ===== FC3: Holding Registers (Analog Outputs) =====
 func (m *ModbusDeviceClient) ReadDeviceAnalogOutput(ctx context.Context, device *config.DeviceConfig) ([]byte, error) {
-	deviceSpec := device.CatalogSpec
-	deviceRange := deviceSpec.AnalogOutputs
-	deviceLimits := deviceSpec.Limits
-
-	if deviceLimits.MaxAnalogChunkSize >= deviceRange.Count {
-		return m.withClient(ctx, device, READ, func() ([]byte, error) {
-			return m.client.ReadHoldingRegisters(deviceRange.Start, deviceRange.Count)
-		})
-	}
-
-	data, err := m.readDeviceAnalogWordsChunked(ctx, device, deviceRange.Start, deviceRange.Count, deviceLimits.MaxAnalogChunkSize,
-		func(addr, qty uint16) ([]byte, error) {
-			return m.withClient(ctx, device, READ, func() ([]byte, error) { return m.client.ReadHoldingRegisters(addr, qty) })
-		})
-
-	return data, err
+	spec := device.CatalogSpec
+	return m.readDeviceRange(ctx, device, spec.AnalogOutputs, spec.Limits.MaxAnalogChunkSize, analogCap, m.client.ReadHoldingRegisters)
 }
 
-// ===== FC4: Input Registers (Analog Inputs) =====
 func (m *ModbusDeviceClient) ReadDeviceAnalogInput(ctx context.Context, device *config.DeviceConfig) ([]byte, error) {
-	deviceSpec := device.CatalogSpec
-	deviceRange := deviceSpec.AnalogInputs
-	deviceLimits := deviceSpec.Limits
+	spec := device.CatalogSpec
+	return m.readDeviceRange(ctx, device, spec.AnalogInputs, spec.Limits.MaxAnalogChunkSize, analogCap, m.client.ReadInputRegisters)
+}
 
-	if deviceLimits.MaxAnalogChunkSize >= deviceRange.Count {
+func (m *ModbusDeviceClient) readDeviceRange(
+	ctx context.Context,
+	device *config.DeviceConfig,
+	deviceRange *config.Range,
+	maxChunkSize uint16,
+	capFn func(uint16) int,
+	modbusRead func(uint16, uint16) ([]byte, error),
+) ([]byte, error) {
+	if maxChunkSize >= deviceRange.Count {
 		return m.withClient(ctx, device, READ, func() ([]byte, error) {
-			return m.client.ReadInputRegisters(deviceRange.Start, deviceRange.Count)
+			return modbusRead(deviceRange.Start, deviceRange.Count)
 		})
 	}
-
-	data, err := m.readDeviceAnalogWordsChunked(ctx, device, deviceRange.Start, deviceRange.Count, deviceLimits.MaxAnalogChunkSize,
+	return m.readChunked(deviceRange.Start, deviceRange.Count, maxChunkSize, capFn,
 		func(addr, qty uint16) ([]byte, error) {
-			return m.withClient(ctx, device, READ, func() ([]byte, error) { return m.client.ReadInputRegisters(addr, qty) })
+			return m.withClient(ctx, device, READ, func() ([]byte, error) {
+				return modbusRead(addr, qty)
+			})
 		})
-
-	return data, err
 }
 
-func (m *ModbusDeviceClient) readDeviceDigitalBitsChunked(
-	ctx context.Context,
-	device *config.DeviceConfig,
-	start, count uint16,
-	chunkSize uint16,
+func (m *ModbusDeviceClient) readChunked(
+	start, count, chunkSize uint16,
+	capFn func(uint16) int,
 	readFn func(addr, qty uint16) ([]byte, error),
 ) ([]byte, error) {
-
 	if count == 0 {
 		return []byte{}, nil
 	}
-	// The number of bytes needed to store 'count' bits, rounded up to a whole byte.
-	// integer division (not float division) is used. so 8+7=15, 15/8 = 1
-	capBytes := int(count+7) / 8
-	buf := make([]byte, 0, capBytes)
-
+	buf := make([]byte, 0, capFn(count))
 	var firstErr error
-
 	forEachChunk(start, count, chunkSize, func(addr, qty uint16) bool {
 		data, err := readFn(addr, qty)
 		if err != nil {
-			logging.Error("read bits failed", "bus", m.busId, "addr", addr, "qty", qty, "error", err)
+			logging.Error("read failed", "bus", m.busId, "addr", addr, "qty", qty, "error", err)
 			firstErr = err
-
-			return false // stop on first failure
+			return false
 		}
 		buf = append(buf, data...)
-
-		return true
-	})
-	if firstErr != nil {
-		return nil, firstErr
-	}
-	return buf, nil
-}
-
-// tryReadRegsChunked reads holding/input registers in chunks and concatenates the raw bytes.
-// start/count are in registers; maxPerReq is in registers.
-func (m *ModbusDeviceClient) readDeviceAnalogWordsChunked(
-	ctx context.Context,
-	device *config.DeviceConfig,
-	start, count uint16,
-	chunkSize uint16,
-	readFn func(addr, qty uint16) ([]byte, error),
-) ([]byte, error) {
-
-	if count == 0 {
-		return []byte{}, nil
-	}
-	// Each register = 2 bytes
-	buf := make([]byte, 0, int(count)*2)
-
-	var firstErr error
-
-	forEachChunk(start, count, chunkSize, func(addr, qty uint16) bool {
-
-		data, err := readFn(addr, qty)
-		if err != nil {
-			logging.Error("read regs failed", "bus", m.busId, "addr", addr, "qty", qty, "error", err)
-			firstErr = err
-			return false // stop on first failure
-		}
-
-		buf = append(buf, data...)
-
 		return true
 	})
 	if firstErr != nil {
@@ -438,18 +355,11 @@ func forEachChunk(start, total, chunkSize uint16, fn func(addr, qty uint16) bool
 	left := total
 	addr := start
 	for left > 0 {
-		step := minU16(left, chunkSize)
+		step := min(left, chunkSize)
 		if !fn(addr, step) {
 			return
 		}
 		addr += step
 		left -= step
 	}
-}
-
-func minU16(a, b uint16) uint16 {
-	if a < b {
-		return a
-	}
-	return b
 }

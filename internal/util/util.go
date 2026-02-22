@@ -2,9 +2,17 @@ package util
 
 import (
 	"net"
+	"os"
 	"strconv"
 	"strings"
 )
+
+func GetEnvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
 
 func BytesToBinaryString(bs []byte, count int) string {
 	var s strings.Builder
