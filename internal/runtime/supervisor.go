@@ -32,6 +32,7 @@ const (
 // RuntimeSupervisor manages the lifecycle of a sandboxed rule-runtime process.
 type RuntimeSupervisor struct {
 	workspacePath   string
+	edgeName        string
 	sandboxPath     string
 	nodePath        string
 	runtimePath     string
@@ -44,9 +45,10 @@ type RuntimeSupervisor struct {
 	ipcBridge       *IPCBridge
 }
 
-func NewRuntimeSupervisor(workspacePath string, ipcBridge *IPCBridge) *RuntimeSupervisor {
+func NewRuntimeSupervisor(workspacePath string, edgeName string, ipcBridge *IPCBridge) *RuntimeSupervisor {
 	return &RuntimeSupervisor{
 		workspacePath: workspacePath,
+		edgeName:      edgeName,
 		sandboxPath:   util.GetEnvDefault("UHN_SANDBOX_PATH", "/usr/lib/uhn"),
 		nodePath:      util.GetEnvDefault("UHN_NODE_PATH", "/opt/node"),
 		runtimePath:   os.Getenv("UHN_RUNTIME_PATH"),
@@ -277,7 +279,7 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 			"--tsconfig", "/uhn-runtime/packages/uhn-rule-runtime/tsconfig.json",
 			"--inspect=127.0.0.1:9250",
 			"/uhn-runtime/packages/uhn-rule-runtime/src/rule-runtime.ts",
-			blueprintPath, "edge",
+			blueprintPath, "edge", s.edgeName,
 		}
 		cfg.Network = config.NetworkDebugAttach
 		cfg.DebugListen = "0.0.0.0:9250"
@@ -288,14 +290,14 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 			"tsx",
 			"--tsconfig", "/uhn-runtime/packages/uhn-rule-runtime/tsconfig.json",
 			"/uhn-runtime/packages/uhn-rule-runtime/src/rule-runtime.ts",
-			blueprintPath, "edge",
+			blueprintPath, "edge", s.edgeName,
 		}
 
 	default: // prod
 		cfg.Command = "node"
 		cfg.Args = []string{
 			"/uhn-runtime/packages/uhn-rule-runtime/dist/rule-runtime.js",
-			blueprintPath, "edge",
+			blueprintPath, "edge", s.edgeName,
 		}
 	}
 

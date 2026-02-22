@@ -65,7 +65,7 @@ func main() {
 		signalTracker := runtime.NewSignalTracker()
 
 		// Create supervisor with IPC bridge
-		supervisor := runtime.NewRuntimeSupervisor(workspacePath, ipcBridge)
+		supervisor := runtime.NewRuntimeSupervisor(workspacePath, edgeName, ipcBridge)
 		defer supervisor.Stop()
 
 		// Wire blueprint downloader (same as before)
