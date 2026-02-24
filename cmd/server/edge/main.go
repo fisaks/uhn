@@ -89,6 +89,9 @@ func main() {
 		timerCmdSub := runtime.NewTimerCmdSubscriber(ipcBridge, signalTracker)
 		edgeBroker.Subscribe(ctx, "timer/cmd/+", messaging.AtLeastOnce, timerCmdSub)
 
+		muteCmdSub := runtime.NewMuteCmdSubscriber(ipcBridge)
+		edgeBroker.Subscribe(ctx, "mute/cmd", messaging.AtLeastOnce, muteCmdSub)
+
 		// Subscribe to timer/state/+ to capture retained timer state for restoration on restart
 		timerStateSub := runtime.NewTimerStateSubscriber(signalTracker, edgeBroker)
 		timerStateSub.Subscribe(ctx)

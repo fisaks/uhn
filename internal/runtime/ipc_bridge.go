@@ -440,7 +440,8 @@ func (b *IPCBridge) handleActions(ctx context.Context, raw []byte) {
 
 	for _, action := range event.Actions {
 		var resource *RuntimeResource
-		if rm != nil {
+		// Mute actions don't reference a resource by resourceId
+		if rm != nil && action.ResourceID != "" {
 			resource, _ = rm.LookupResource(action.ResourceID)
 		}
 		b.actionHandler.HandleRuntimeAction(ctx, action, resource)

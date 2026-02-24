@@ -40,7 +40,8 @@ func NewEdgeActionHandler(
 
 // HandleRuntimeAction dispatches a single action from the rule runtime.
 func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
-	if resource == nil {
+
+	if resource == nil && action.ResourceID != "" {
 		logging.Warn("Action for unknown resource", "type", action.Type, "resourceId", action.ResourceID)
 		return
 	}
@@ -54,6 +55,8 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 		// Timer actions are only emitted in master mode; they shouldn't arrive
 		// on the edge action handler. Log a warning if they do.
 		logging.Warn("Timer action received on edge action handler (unexpected)", "type", action.Type, "resourceId", action.ResourceID)
+	case "mute", "clearMute":
+		h.handleMuteAction(ctx, action)
 	default:
 		logging.Warn("Unknown action type", "type", action.Type, "resourceId", action.ResourceID)
 	}
@@ -120,6 +123,49 @@ func (h *EdgeActionHandler) handleEmitSignal(ctx context.Context, action Runtime
 		logging.Error("emitSignal: MQTT publish failed", "resourceId", action.ResourceID, "error", err)
 	} else {
 		logging.Debug("emitSignal published", "resourceId", action.ResourceID, "value", action.Value)
+	}
+}
+
+// handleMuteAction forwards mute actions to the local runtime via IPC (fast path)
+// and publishes to MQTT so master can relay to all other runtimes.
+func (h *EdgeActionHandler) handleMuteAction(ctx context.Context, action RuntimeAction) {
+	// Forward to local runtime via IPC (the runtime already applied it locally,
+	// but re-applying is idempotent and harmless)
+	muteCmd := MuteCommand{
+		Kind: "event",
+		Cmd:  "muteCommand",
+		Payload: MuteCommandPayload{
+			TargetType: action.TargetType,
+			TargetID:   action.TargetID,
+			Action:     action.Type,
+			ExpiresAt:  action.ExpiresAt,
+			Identifier: action.Identifier,
+		},
+	}
+	if err := h.ipcBridge.writeJSON(muteCmd); err != nil {
+		logging.Error("mute: failed to forward to runtime", "error", err)
+	}
+
+	// Publish to MQTT so master receives and relays
+	topic := "mute/event"
+	payload := MuteMQTTPayload{
+		TargetType: action.TargetType,
+		TargetID:   action.TargetID,
+		Action:     action.Type,
+		ExpiresAt:  action.ExpiresAt,
+		Identifier: action.Identifier,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		logging.Error("mute: marshal failed", "error", err)
+		return
+	}
+
+	if err := h.broker.Publish(ctx, topic, messaging.FireAndForget, false, data); err != nil {
+		logging.Error("mute: MQTT publish failed", "error", err)
+	} else {
+		logging.Debug("mute: published to MQTT", "targetType", action.TargetType, "targetId", action.TargetID, "action", action.Type)
 	}
 }
 

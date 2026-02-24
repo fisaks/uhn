@@ -21,10 +21,16 @@ type RuntimeResource struct {
 }
 
 // RuntimeAction is emitted by the rule engine when a rule fires.
+// Fields are a superset of all action types; only relevant fields are populated.
 type RuntimeAction struct {
-	Type       string `json:"type"`       // "setOutput" | "emitSignal"
-	ResourceID string `json:"resourceId"`
-	Value      any    `json:"value"`
+	Type       string `json:"type"`                 // "setOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute"
+	ResourceID string `json:"resourceId,omitempty"`
+	Value      any    `json:"value,omitempty"`
+	// Mute-specific fields
+	TargetType string `json:"targetType,omitempty"` // "rule" | "resource"
+	TargetID   string `json:"targetId,omitempty"`
+	ExpiresAt  int64  `json:"expiresAt,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
 }
 
 // --- Commands (Go → Runtime stdin) ---
@@ -155,4 +161,40 @@ type TimerCommandPayload struct {
 	Action     string `json:"action"` // "start" | "clear"
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
+}
+
+// --- Mute IPC types ---
+
+// MuteAction is emitted by the rule engine when a mute/clearMute action fires.
+type MuteAction struct {
+	Type       string `json:"type"`                 // "mute" | "clearMute"
+	TargetType string `json:"targetType"`           // "rule" | "resource"
+	TargetID   string `json:"targetId"`
+	ExpiresAt  int64  `json:"expiresAt,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
+}
+
+// MuteMQTTPayload is the JSON payload for mute MQTT messages (both event and cmd).
+type MuteMQTTPayload struct {
+	TargetType string `json:"targetType"`           // "rule" | "resource"
+	TargetID   string `json:"targetId"`
+	Action     string `json:"action"`               // "mute" | "clearMute"
+	ExpiresAt  int64  `json:"expiresAt,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
+}
+
+// MuteCommand is the IPC command sent to the runtime to apply a mute.
+type MuteCommand struct {
+	Kind    string             `json:"kind"` // "event"
+	Cmd     string             `json:"cmd"`  // "muteCommand"
+	Payload MuteCommandPayload `json:"payload"`
+}
+
+// MuteCommandPayload is the payload of a MuteCommand.
+type MuteCommandPayload struct {
+	TargetType string `json:"targetType"`           // "rule" | "resource"
+	TargetID   string `json:"targetId"`
+	Action     string `json:"action"`               // "mute" | "clearMute"
+	ExpiresAt  int64  `json:"expiresAt,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
 }
