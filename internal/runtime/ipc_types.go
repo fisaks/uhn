@@ -29,13 +29,6 @@ type RuntimeAction struct {
 
 // --- Commands (Go → Runtime stdin) ---
 
-// ListResourcesCommand requests the list of known resources.
-type ListResourcesCommand struct {
-	Kind string `json:"kind"` // "request"
-	ID   string `json:"id"`
-	Cmd  string `json:"cmd"` // "listResources"
-}
-
 // StateUpdateCommand sends a single resource state change.
 type StateUpdateCommand struct {
 	Kind    string               `json:"kind"` // "event"
@@ -59,10 +52,10 @@ type ActionsEvent struct {
 	Actions []RuntimeAction `json:"actions"`
 }
 
-// ListResourcesResponse is the reply to a listResources request.
-type ListResourcesResponse struct {
-	Kind      string            `json:"kind"` // "response"
-	ID        string            `json:"id"`
+// ResourcesLoadedEvent is emitted by the runtime after resources are loaded.
+type ResourcesLoadedEvent struct {
+	Kind      string            `json:"kind"` // "event"
+	Cmd       string            `json:"cmd"`  // "resourcesLoaded"
 	Resources []RuntimeResource `json:"resources"`
 }
 
@@ -83,6 +76,35 @@ type LogEvent struct {
 	Level     string `json:"level"`
 	Component string `json:"component"`
 	Message   string `json:"message"`
+}
+
+// --- Rules loaded IPC types ---
+
+// RuntimeRuleTriggerInfo is a serialized trigger (matches TypeScript RuntimeRuleTriggerInfo).
+type RuntimeRuleTriggerInfo struct {
+	Kind        string `json:"kind"`
+	ResourceID  string `json:"resourceId"`
+	Event       string `json:"event,omitempty"`
+	ThresholdMs int    `json:"thresholdMs,omitempty"`
+}
+
+// RuntimeRuleInfo is a serialized rule (matches TypeScript RuntimeRuleInfo).
+type RuntimeRuleInfo struct {
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name,omitempty"`
+	Description     string                   `json:"description,omitempty"`
+	ExecutionTarget string                   `json:"executionTarget,omitempty"`
+	Triggers        []RuntimeRuleTriggerInfo `json:"triggers"`
+	Priority        *int                     `json:"priority,omitempty"`
+	SuppressMs      *int                     `json:"suppressMs,omitempty"`
+	CooldownMs      *int                     `json:"cooldownMs,omitempty"`
+}
+
+// RulesLoadedEvent is emitted by the runtime after rules are loaded.
+type RulesLoadedEvent struct {
+	Kind  string            `json:"kind"` // "event"
+	Cmd   string            `json:"cmd"`  // "rulesLoaded"
+	Rules []RuntimeRuleInfo `json:"rules"`
 }
 
 // --- Timer IPC types ---

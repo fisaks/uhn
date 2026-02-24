@@ -11,10 +11,9 @@ import (
 
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/uhn"
 )
-
-const listResourcesTimeout = 10 * time.Second
 
 // ActionHandler processes actions emitted by the edge rule runtime.
 type ActionHandler interface {
@@ -42,24 +41,21 @@ type IPCBridge struct {
 	computedState map[string]any // C = S ?? P
 	stateMu       sync.RWMutex
 
-	// Pending request/response
-	pendingMu       sync.Mutex
-	pendingRequests map[string]chan json.RawMessage
-
 	actionHandler        ActionHandler
 	timerPublisher       *TimerPublisher
 	timerStateSubscriber *TimerStateSubscriber
+
+	broker messaging.Broker
 }
 
 // NewIPCBridge creates a new IPC bridge for the given edge.
 func NewIPCBridge(edgeName string, deviceMap map[string]*config.DeviceConfig) *IPCBridge {
 	return &IPCBridge{
-		edgeName:        edgeName,
-		deviceMap:       deviceMap,
-		physicalState:   make(map[string]any),
-		signalState:     make(map[string]any),
-		computedState:   make(map[string]any),
-		pendingRequests: make(map[string]chan json.RawMessage),
+		edgeName:      edgeName,
+		deviceMap:     deviceMap,
+		physicalState: make(map[string]any),
+		signalState:   make(map[string]any),
+		computedState: make(map[string]any),
 	}
 }
 
@@ -76,6 +72,11 @@ func (b *IPCBridge) SetTimerPublisher(pub *TimerPublisher) {
 // SetTimerStateSubscriber sets the subscriber used to restore timers on restart.
 func (b *IPCBridge) SetTimerStateSubscriber(sub *TimerStateSubscriber) {
 	b.timerStateSubscriber = sub
+}
+
+// SetBroker sets the MQTT broker for publishing runtime rules.
+func (b *IPCBridge) SetBroker(broker messaging.Broker) {
+	b.broker = broker
 }
 
 // SetStdin provides the stdin writer for the runtime process.
@@ -115,6 +116,14 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 			readyCh <- true
 			go b.onReady(ctx)
 
+		// Rules loaded event
+		case msg.Kind == "event" && msg.Cmd == "rulesLoaded":
+			b.handleRulesLoaded(ctx, line)
+
+		// Resources loaded event
+		case msg.Kind == "event" && msg.Cmd == "resourcesLoaded":
+			b.handleResourcesLoaded(line)
+
 		// Log event
 		case msg.Kind == "event" && msg.Cmd == "log":
 			b.handleLog(line)
@@ -131,18 +140,6 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 		case msg.Kind == "event" && msg.Cmd == "actions":
 			b.handleActions(ctx, line)
 
-		// Response to a request
-		case msg.Kind == "response" && msg.ID != "":
-			b.pendingMu.Lock()
-			ch, ok := b.pendingRequests[msg.ID]
-			if ok {
-				delete(b.pendingRequests, msg.ID)
-			}
-			b.pendingMu.Unlock()
-			if ok {
-				ch <- json.RawMessage(line)
-			}
-
 		default:
 			logging.Info("Rule runtime stdout (unhandled)", "line", string(line))
 		}
@@ -154,22 +151,10 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 }
 
 // onReady is called when the runtime sends the "ready" event.
-// It requests the resource list, restores retained timer state, and sends the
-// initial full state update followed by timer restore commands.
+// It restores retained timer state and sends the initial full state update
+// followed by timer restore commands. The resource map is already built by
+// handleResourcesLoaded which fires before ready.
 func (b *IPCBridge) onReady(ctx context.Context) {
-	resources, err := b.requestListResources(ctx)
-	if err != nil {
-		logging.Error("Failed to list resources from runtime", "error", err)
-		return
-	}
-
-	rm := NewResourceMap(b.edgeName, resources)
-	b.resourceMapMu.Lock()
-	b.resourceMap = rm
-	b.resourceMapMu.Unlock()
-
-	logging.Info("IPC bridge resource map built", "resources", len(rm.byResourceID))
-
 	// Apply retained timer states to computedState before sending the full update
 	timerCommands := b.prepareTimerRestoration()
 
@@ -328,47 +313,6 @@ func (b *IPCBridge) updatePhysicalState(resourceID string, value any, timestamp 
 	}
 }
 
-// requestListResources sends a listResources request and waits for the response.
-func (b *IPCBridge) requestListResources(ctx context.Context) ([]RuntimeResource, error) {
-	id := fmt.Sprintf("lr-%d", time.Now().UnixMilli())
-
-	ch := make(chan json.RawMessage, 1)
-	b.pendingMu.Lock()
-	b.pendingRequests[id] = ch
-	b.pendingMu.Unlock()
-
-	cmd := ListResourcesCommand{
-		Kind: "request",
-		ID:   id,
-		Cmd:  "listResources",
-	}
-	if err := b.writeJSON(cmd); err != nil {
-		b.pendingMu.Lock()
-		delete(b.pendingRequests, id)
-		b.pendingMu.Unlock()
-		return nil, fmt.Errorf("write listResources: %w", err)
-	}
-
-	select {
-	case raw := <-ch:
-		var resp ListResourcesResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			return nil, fmt.Errorf("parse listResources response: %w", err)
-		}
-		return resp.Resources, nil
-	case <-time.After(listResourcesTimeout):
-		b.pendingMu.Lock()
-		delete(b.pendingRequests, id)
-		b.pendingMu.Unlock()
-		return nil, fmt.Errorf("listResources timeout after %v", listResourcesTimeout)
-	case <-ctx.Done():
-		b.pendingMu.Lock()
-		delete(b.pendingRequests, id)
-		b.pendingMu.Unlock()
-		return nil, ctx.Err()
-	}
-}
-
 // sendStateUpdate sends a single resource state change to the runtime.
 func (b *IPCBridge) sendStateUpdate(state RuntimeResourceState) {
 	cmd := StateUpdateCommand{
@@ -503,6 +447,54 @@ func (b *IPCBridge) handleActions(ctx context.Context, raw []byte) {
 	}
 }
 
+// handleRulesLoaded publishes the loaded rule count to MQTT so master can compare expected vs actual.
+func (b *IPCBridge) handleRulesLoaded(ctx context.Context, raw []byte) {
+	var event RulesLoadedEvent
+	if err := json.Unmarshal(raw, &event); err != nil {
+		logging.Error("Failed to parse rulesLoaded event", "error", err)
+		return
+	}
+
+	count := len(event.Rules)
+	ids := make([]string, len(event.Rules))
+	for i, r := range event.Rules {
+		ids[i] = r.ID
+	}
+	logging.Info("Rule runtime reported loaded rules", "count", count, "ruleIds", ids)
+
+	if b.broker != nil {
+		payload := []byte(fmt.Sprintf("%d", count))
+		if err := b.broker.Publish(ctx, "runtime/rules", messaging.AtLeastOnce, true, payload); err != nil {
+			logging.Error("Failed to publish runtime rule count to MQTT", "error", err)
+		}
+	}
+}
+
+// handleResourcesLoaded processes the resourcesLoaded event and builds the resource map.
+func (b *IPCBridge) handleResourcesLoaded(raw []byte) {
+	var event ResourcesLoadedEvent
+	if err := json.Unmarshal(raw, &event); err != nil {
+		logging.Error("Failed to parse resourcesLoaded event", "error", err)
+		return
+	}
+
+	rm := NewResourceMap(b.edgeName, event.Resources)
+	b.resourceMapMu.Lock()
+	b.resourceMap = rm
+	b.resourceMapMu.Unlock()
+
+	logging.Info("IPC bridge resource map built", "resources", len(rm.byResourceID))
+}
+
+// clearRuntimeRules publishes an empty retained message to clear the runtime/rules topic.
+func (b *IPCBridge) clearRuntimeRules(ctx context.Context) {
+	if b.broker != nil {
+		if err := b.broker.Publish(ctx, "runtime/rules", messaging.AtLeastOnce, true, []byte{}); err != nil {
+			logging.Error("Failed to clear runtime rules from MQTT", "error", err)
+		}
+	}
+}
+
 // writeJSON marshals v to JSON and writes it as a newline-terminated line to stdin.
 func (b *IPCBridge) writeJSON(v any) error {
 	data, err := json.Marshal(v)
@@ -522,7 +514,7 @@ func (b *IPCBridge) writeJSON(v any) error {
 }
 
 // Reset clears all state when the runtime is stopped/restarted.
-func (b *IPCBridge) Reset() {
+func (b *IPCBridge) Reset(ctx context.Context) {
 	b.stdinMu.Lock()
 	b.stdin = nil
 	b.stdinMu.Unlock()
@@ -537,16 +529,12 @@ func (b *IPCBridge) Reset() {
 	b.computedState = make(map[string]any)
 	b.stateMu.Unlock()
 
-	b.pendingMu.Lock()
-	for id, ch := range b.pendingRequests {
-		close(ch)
-		delete(b.pendingRequests, id)
-	}
-	b.pendingMu.Unlock()
+	// Clear retained runtime rules from MQTT
+	b.clearRuntimeRules(ctx)
 
 	// Re-subscribe to timer/state/+ so retained messages are re-captured
 	// for the next runtime startup
 	if b.timerStateSubscriber != nil {
-		b.timerStateSubscriber.Resubscribe(context.Background())
+		b.timerStateSubscriber.Resubscribe(ctx)
 	}
 }

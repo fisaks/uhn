@@ -62,16 +62,18 @@ func main() {
 	if workspacePath != "" {
 		// Create IPC bridge and signal tracker
 		ipcBridge := runtime.NewIPCBridge(edgeName, cfg.DevicesByName)
+		ipcBridge.SetBroker(edgeBroker)
 		signalTracker := runtime.NewSignalTracker()
 
 		// Create supervisor with IPC bridge
 		supervisor := runtime.NewRuntimeSupervisor(workspacePath, edgeName, ipcBridge)
-		defer supervisor.Stop()
+		supervisor.SetBroker(edgeBroker)
+		defer supervisor.Stop(ctx)
 
 		// Wire blueprint downloader (same as before)
 		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
 		bpDownloader.OnBlueprintReady = func() { supervisor.Restart(ctx) }
-		bpDownloader.OnBlueprintDeactivated = func() { supervisor.Stop() }
+		bpDownloader.OnBlueprintDeactivated = func() { supervisor.Stop(ctx) }
 
 		edgeBroker.SubscribeMaster(ctx, "identity", messaging.AtLeastOnce, bpDownloader.IdentitySubscriber())
 		edgeBroker.SubscribeMaster(ctx, "blueprint/activated", messaging.AtLeastOnce, bpDownloader.BlueprintSubscriber())
@@ -118,6 +120,8 @@ func main() {
 		}
 	} else {
 		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader and rule runtime not activated")
+		edgeBroker.Publish(ctx, "runtime/status", messaging.AtLeastOnce, true, []byte("unconfigured"))
+		edgeBroker.Publish(ctx, "runtime/rules", messaging.AtLeastOnce, true, []byte{})
 
 		pollers, err := poller.NewBusPollers(cfg, edgeBroker)
 		if err != nil {

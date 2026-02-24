@@ -18,6 +18,7 @@ import (
 
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/util"
 )
 
@@ -43,6 +44,7 @@ type RuntimeSupervisor struct {
 	restartAttempts int
 	mu              sync.Mutex
 	ipcBridge       *IPCBridge
+	broker          messaging.Broker
 }
 
 func NewRuntimeSupervisor(workspacePath string, edgeName string, ipcBridge *IPCBridge) *RuntimeSupervisor {
@@ -56,11 +58,25 @@ func NewRuntimeSupervisor(workspacePath string, edgeName string, ipcBridge *IPCB
 	}
 }
 
+// SetBroker sets the MQTT broker for publishing runtime status.
+func (s *RuntimeSupervisor) SetBroker(broker messaging.Broker) {
+	s.broker = broker
+}
+
+func (s *RuntimeSupervisor) publishRuntimeStatus(ctx context.Context, status string) {
+	if s.broker == nil {
+		return
+	}
+	if err := s.broker.Publish(ctx, "runtime/status", messaging.AtLeastOnce, true, []byte(status)); err != nil {
+		logging.Error("Failed to publish runtime status", "status", status, "error", err)
+	}
+}
+
 func (s *RuntimeSupervisor) Start(ctx context.Context) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
-		s.Stop()
+		s.Stop(ctx)
 		s.mu.Lock()
 	}
 
@@ -73,7 +89,7 @@ func (s *RuntimeSupervisor) Start(ctx context.Context) {
 	s.startProcess(ctx, currentRunID)
 }
 
-func (s *RuntimeSupervisor) Stop() {
+func (s *RuntimeSupervisor) Stop(ctx context.Context) {
 	s.mu.Lock()
 	s.runID++ // invalidate any restart watcher
 	proc := s.process
@@ -83,7 +99,8 @@ func (s *RuntimeSupervisor) Stop() {
 	s.stdin = nil
 	s.mu.Unlock()
 
-	s.ipcBridge.Reset()
+	s.publishRuntimeStatus(ctx, "stopped")
+	s.ipcBridge.Reset(ctx)
 	if stdinPipe != nil {
 		stdinPipe.Close()
 	}
@@ -95,7 +112,7 @@ func (s *RuntimeSupervisor) Stop() {
 
 func (s *RuntimeSupervisor) Restart(ctx context.Context) {
 	logging.Info("Restarting rule runtime")
-	s.Stop()
+	s.Stop(ctx)
 	s.Start(ctx)
 }
 
@@ -173,6 +190,7 @@ func (s *RuntimeSupervisor) startProcess(ctx context.Context, forRunID int) {
 	s.writePIDFile(cmd.Process.Pid)
 
 	logging.Info("Rule runtime process started", "pid", cmd.Process.Pid)
+	s.publishRuntimeStatus(ctx, "starting")
 
 	// Log stderr lines
 	go s.pipeStderr(stderrPipe)
@@ -185,14 +203,17 @@ func (s *RuntimeSupervisor) startProcess(ctx context.Context, forRunID int) {
 	case ready := <-readyCh:
 		if ready {
 			logging.Info("Rule runtime ready", "pid", cmd.Process.Pid)
+			s.publishRuntimeStatus(ctx, "running")
 			s.mu.Lock()
 			s.restartAttempts = 0
 			s.mu.Unlock()
 		} else {
 			logging.Error("Rule runtime stdout closed before ready signal")
+			s.publishRuntimeStatus(ctx, "failed")
 		}
 	case <-time.After(readyTimeout):
 		logging.Error("Rule runtime ready timeout, killing process", "pid", cmd.Process.Pid)
+		s.publishRuntimeStatus(ctx, "failed")
 		s.terminateProcess(cmd)
 		s.mu.Lock()
 		s.running = false
@@ -237,6 +258,7 @@ func (s *RuntimeSupervisor) watchForRestart(ctx context.Context, cmd *exec.Cmd, 
 
 	logging.Warn("Rule runtime exited unexpectedly, restarting",
 		"attempts", attempts+1, "backoff", backoff)
+	s.publishRuntimeStatus(ctx, "restarting")
 
 	time.Sleep(backoff)
 
