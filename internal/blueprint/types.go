@@ -17,8 +17,10 @@ type MasterIdentityMessage struct {
 }
 
 // BlueprintVersionFile is persisted locally to track the current blueprint version.
+// Also published over MQTT to blueprint/activated.
 type BlueprintVersionFile struct {
-	Identifier string `json:"identifier"`
-	Version    int    `json:"version"`
-	SHA256     string `json:"sha256"`
+	Identifier  string `json:"identifier"`
+	Version     int    `json:"version"`
+	SHA256      string `json:"sha256"`
+	ActivatedAt int64  `json:"activatedAt"`
 }

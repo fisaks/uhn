@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,9 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fisaks/uhn/internal/encrypt"
 	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/messaging"
 )
 
 const signedPayload = "GET /api/internal/download/blueprint"
@@ -31,6 +34,7 @@ type BlueprintDownloader struct {
 	downloading           bool
 	pending               *BlueprintActivatedMessage
 	httpClient            *http.Client
+	broker                messaging.Broker
 	mu                    sync.Mutex
 	OnBlueprintReady       func() // called after successful download + extract
 	OnBlueprintDeactivated func() // called when blueprint is deactivated (null payload)
@@ -49,9 +53,59 @@ func NewBlueprintDownloader(edgeName string, keyPair *encrypt.EdgeKeyPair, works
 		logging.Info("Loaded blueprint version",
 			"identifier", d.currentVersion.Identifier,
 			"version", d.currentVersion.Version,
+			"sha256", d.currentVersion.SHA256,
 		)
 	}
 	return d
+}
+
+// SetBroker sets the MQTT broker used to publish active blueprint state.
+func (d *BlueprintDownloader) SetBroker(b messaging.Broker) {
+	d.broker = b
+}
+
+// publishBlueprint publishes the current blueprint version to blueprint/activated (retained).
+// If no blueprint is active, publishes empty bytes to clear the retained message.
+func (d *BlueprintDownloader) publishBlueprint() {
+	if d.broker == nil {
+		return
+	}
+	ctx := context.Background()
+	d.mu.Lock()
+	v := d.currentVersion
+	d.mu.Unlock()
+
+	if v != nil {
+		if err := d.broker.PublishJSON(ctx, "blueprint/activated", messaging.AtLeastOnce, true, v); err != nil {
+			logging.Error("Failed to publish active blueprint", "error", err)
+		}
+	} else {
+		if err := d.broker.Publish(ctx, "blueprint/activated", messaging.AtLeastOnce, true, []byte{}); err != nil {
+			logging.Error("Failed to clear active blueprint", "error", err)
+		}
+	}
+}
+
+// OnConnectPublish implements messaging.OnConnectPublisher — re-publishes the active blueprint on reconnect.
+func (d *BlueprintDownloader) OnConnectPublish(ctx context.Context) (*messaging.ConnectMessage, error) {
+	d.mu.Lock()
+	v := d.currentVersion
+	d.mu.Unlock()
+
+	if v != nil {
+		return &messaging.ConnectMessage{
+			Topic:   "blueprint/activated",
+			Qos:     messaging.AtLeastOnce,
+			Retain:  true,
+			Payload: v,
+		}, nil
+	}
+	return &messaging.ConnectMessage{
+		Topic:        "blueprint/activated",
+		Qos:          messaging.AtLeastOnce,
+		Retain:       true,
+		PayloadBytes: []byte{},
+	}, nil
 }
 
 // HandleMasterIdentity processes a master identity MQTT message, extracting the SPKI public key.
@@ -87,6 +141,10 @@ func (d *BlueprintDownloader) HandleBlueprintActivated(payload []byte) {
 	// Null payload means blueprint deactivated
 	if len(payload) == 0 || string(payload) == "null" {
 		logging.Info("Blueprint deactivated (null payload)")
+		d.mu.Lock()
+		d.currentVersion = nil
+		d.mu.Unlock()
+		d.publishBlueprint()
 		if d.OnBlueprintDeactivated != nil {
 			d.OnBlueprintDeactivated()
 		}
@@ -119,12 +177,11 @@ func (d *BlueprintDownloader) HandleBlueprintActivated(payload []byte) {
 func (d *BlueprintDownloader) processActivation(msg *BlueprintActivatedMessage) {
 	d.mu.Lock()
 	if d.currentVersion != nil &&
-		d.currentVersion.Identifier == msg.Identifier &&
-		d.currentVersion.Version == msg.Version {
+		d.currentVersion.SHA256 != "" &&
+		d.currentVersion.SHA256 == msg.SHA256 {
 		d.mu.Unlock()
-		logging.Debug("Blueprint version already current, skipping download",
-			"identifier", msg.Identifier,
-			"version", msg.Version,
+		logging.Debug("Blueprint SHA256 already matches, skipping download",
+			"sha256", msg.SHA256,
 		)
 		return
 	}
@@ -251,15 +308,17 @@ func (d *BlueprintDownloader) downloadBlueprint(msg *BlueprintActivatedMessage) 
 
 	// Persist version file
 	version := &BlueprintVersionFile{
-		Identifier: msg.Identifier,
-		Version:    msg.Version,
-		SHA256:     msg.SHA256,
+		Identifier:  msg.Identifier,
+		Version:     msg.Version,
+		SHA256:      msg.SHA256,
+		ActivatedAt: time.Now().Unix(),
 	}
 	d.saveVersionFile(version)
 
 	d.mu.Lock()
 	d.currentVersion = version
 	d.mu.Unlock()
+	d.publishBlueprint()
 
 	activeDir := filepath.Join(blueprintDir, "active")
 	if err := d.extractBlueprint(finalPath, activeDir); err != nil {

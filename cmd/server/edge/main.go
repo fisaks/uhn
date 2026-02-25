@@ -72,6 +72,8 @@ func main() {
 
 		// Wire blueprint downloader (same as before)
 		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
+		bpDownloader.SetBroker(edgeBroker)
+		edgeBroker.AddOnConnectPublisher("blueprint", bpDownloader)
 		bpDownloader.OnBlueprintReady = func() { supervisor.Restart(ctx) }
 		bpDownloader.OnBlueprintDeactivated = func() { supervisor.Stop(ctx) }
 
@@ -125,6 +127,7 @@ func main() {
 		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader and rule runtime not activated")
 		edgeBroker.Publish(ctx, "runtime/status", messaging.AtLeastOnce, true, []byte("unconfigured"))
 		edgeBroker.Publish(ctx, "runtime/rules", messaging.AtLeastOnce, true, []byte{})
+		edgeBroker.Publish(ctx, "blueprint/activated", messaging.AtLeastOnce, true, []byte{})
 
 		pollers, err := poller.NewBusPollers(cfg, edgeBroker)
 		if err != nil {
