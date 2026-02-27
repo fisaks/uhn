@@ -362,6 +362,10 @@ func (b *IPCBridge) handleLog(raw []byte) {
 		logging.Error(prefix + msg.Message)
 	case "warn":
 		logging.Warn(prefix + msg.Message)
+	case "debug":
+		logging.Debug(prefix + msg.Message)
+	case "trace":
+		logging.Trace(prefix + msg.Message)
 	default:
 		logging.Info(prefix + msg.Message)
 	}

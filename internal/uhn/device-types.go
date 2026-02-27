@@ -2,6 +2,7 @@ package uhn
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/fisaks/uhn/internal/config"
@@ -20,8 +21,9 @@ type DeviceState struct {
 }
 
 type IncomingCommand struct {
-	ID     string `json:"id,omitempty"`
-	Action string `json:"action"`
+	ID      string          `json:"id,omitempty"`
+	Action  string          `json:"action"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 type IncomingDeviceCommand struct {

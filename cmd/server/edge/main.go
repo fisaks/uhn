@@ -112,7 +112,12 @@ func main() {
 		actionHandler := runtime.NewEdgeActionHandler(edgeName, pollers, edgeBroker, ipcBridge, signalTracker)
 		ipcBridge.SetActionHandler(actionHandler)
 
-		edgeBroker.StartEdgeSubscriber(ctx, pollers)
+		// Wrap pollers with system command handler so cmd topic reaches both
+		sysHandler := runtime.NewSystemCommandHandler(supervisor, edgeBroker, pollers)
+		edgeBroker.AddOnConnectPublisher("system-config", sysHandler)
+		sysHandler.PublishConfig(ctx)
+
+		edgeBroker.StartEdgeSubscriber(ctx, sysHandler)
 
 		// Start all bus pollers
 		pollers.StartAllPollers(ctx)
