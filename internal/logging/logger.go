@@ -12,21 +12,19 @@ const LevelTrace = slog.Level(-8) // below slog.LevelDebug (-4)
 var Logger *slog.Logger
 var logLevel *slog.LevelVar
 
+// Init initializes the logger from environment variables.
+// Used by standalone tools that don't load the edge config file.
 func Init() {
+	InitWithConfig(os.Getenv("UHN_LOG_LEVEL"), os.Getenv("UHN_LOG_FORMAT"))
+}
+
+// InitWithConfig initializes the logger with already-resolved values.
+func InitWithConfig(levelName, format string) {
 	logLevel = new(slog.LevelVar)
 
-	switch strings.ToLower(os.Getenv("UHN_LOG_LEVEL")) {
-	case "trace":
-		logLevel.Set(LevelTrace)
-	case "debug":
-		logLevel.Set(slog.LevelDebug)
-	case "warn":
-		logLevel.Set(slog.LevelWarn)
-	case "error":
-		logLevel.Set(slog.LevelError)
-	default:
-		logLevel.Set(slog.LevelInfo)
-	}
+	level, _ := ParseLevel(levelName)
+	logLevel.Set(level)
+
 	opts := &slog.HandlerOptions{
 		Level: logLevel,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -39,7 +37,7 @@ func Init() {
 		},
 	}
 	var handler slog.Handler
-	if os.Getenv("LOG_FORMAT") == "text" {
+	if format == "text" {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, opts)

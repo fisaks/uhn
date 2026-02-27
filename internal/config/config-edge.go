@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -18,7 +17,17 @@ import (
    Types (devices keyed by busId)
    ========================= */
 
+type EdgeSettings struct {
+	Name        string `json:"name,omitempty"`
+	Mqtt        string `json:"mqtt,omitempty"`
+	LogLevel    string `json:"logLevel,omitempty"`    // initial boot default
+	RuntimeMode string `json:"runtimeMode,omitempty"` // initial boot default
+	DebugPort   int    `json:"debugPort,omitempty"`   // 0 = auto (base + offset from name)
+	LogFormat   string `json:"logFormat,omitempty"`    // "json" (default) or "text"
+}
+
 type EdgeConfig struct {
+	Edge              *EdgeSettings                 `json:"edge,omitempty"`
 	Buses             []*BusConfig                  `json:"buses"`
 	Catalog           map[string]*CatalogDeviceSpec `json:"catalog"`
 	Devices           map[string][]*DeviceConfig    `json:"devices"`                     // key = busId
@@ -125,8 +134,28 @@ func LoadEdgeConfig(path string) (*EdgeConfig, error) {
 	return LoadEdgeConfigFromReader(f)
 }
 
+var validLogLevels = map[string]bool{"trace": true, "debug": true, "info": true, "warn": true, "error": true}
+var validRuntimeModes = map[string]bool{"normal": true, "debug": true}
+
 func (c *EdgeConfig) Validate() error {
 	var errs multiErr
+
+	/* Edge settings */
+	if c.Edge == nil {
+		c.Edge = &EdgeSettings{}
+	}
+	if c.Edge.LogLevel != "" && !validLogLevels[strings.ToLower(c.Edge.LogLevel)] {
+		errs.addf("edge.logLevel: must be one of trace, debug, info, warn, error (got %q)", c.Edge.LogLevel)
+	}
+	if c.Edge.RuntimeMode != "" && !validRuntimeModes[strings.ToLower(c.Edge.RuntimeMode)] {
+		errs.addf("edge.runtimeMode: must be one of normal, debug (got %q)", c.Edge.RuntimeMode)
+	}
+	if c.Edge.DebugPort != 0 && (c.Edge.DebugPort < 1024 || c.Edge.DebugPort > 65535) {
+		errs.addf("edge.debugPort: must be in range 1024-65535 (got %d)", c.Edge.DebugPort)
+	}
+	if c.Edge.LogFormat != "" && c.Edge.LogFormat != "json" && c.Edge.LogFormat != "text" {
+		errs.addf("edge.logFormat: must be json or text (got %q)", c.Edge.LogFormat)
+	}
 
 	/* Poll */
 	if c.PollIntervalMs <= 0 {
@@ -317,22 +346,6 @@ func (c *EdgeConfig) linkGraph() error {
 	return nil
 }
 
-/* =========================
-   Comment stripping + utils
-   ========================= */
-
-var (
-	lineComments  = regexp.MustCompile(`(?m)//[^\n\r]*`)
-	blockComments = regexp.MustCompile(`(?s)/\*.*?\*/`)
-)
-
-func stripJSONComments(in []byte) []byte {
-	text := string(in)
-	text = blockComments.ReplaceAllString(text, "")
-	text = lineComments.ReplaceAllString(text, "")
-	return []byte(text)
-}
-
 // small multi-error
 type multiErr []string
 
@@ -349,8 +362,7 @@ func LoadEdgeConfigFromReader(r io.Reader) (*EdgeConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	clean := stripJSONComments(raw)
-	dec := json.NewDecoder(strings.NewReader(string(clean)))
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
 	var cfg EdgeConfig
 	if err := dec.Decode(&cfg); err != nil {

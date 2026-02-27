@@ -1,4 +1,8 @@
 {
+    "edge": {
+        "name": "edge1",
+        "mqtt": "tcp://localhost:1883"
+    },
     "buses": [
         {
             "busId": "bus_a",

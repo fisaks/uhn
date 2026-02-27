@@ -14,9 +14,9 @@ RUN go build -o /uhnctl
 
 
 FROM alpine:3.20
-ENV EDGE_CONFIG_PATH=/config/edge-config.json \
-    MQTT_URL=tcp://mosquitto:1883 \
-    EDGE_NAME=edge1
+ENV UHN_EDGE_CONFIG_PATH=/config/edge-config.json \
+    UHN_MQTT_URL=tcp://mosquitto:1883 \
+    UHN_EDGE_NAME=edge1
 COPY --from=build /edge /edge
 COPY --from=build /monitor /monitor
 COPY --from=build /uhnctl /uhnctl

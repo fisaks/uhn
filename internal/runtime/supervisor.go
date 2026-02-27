@@ -19,7 +19,6 @@ import (
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
-	"github.com/fisaks/uhn/internal/util"
 )
 
 const (
@@ -32,28 +31,34 @@ const (
 
 // RuntimeSupervisor manages the lifecycle of a sandboxed rule-runtime process.
 type RuntimeSupervisor struct {
-	workspacePath   string
-	edgeName        string
-	sandboxPath     string
-	nodePath        string
-	runtimePath     string
-	process         *exec.Cmd
-	stdin           io.WriteCloser // kept open for IPC commands to the rule runtime
-	running         bool
-	runID           int
+	workspacePath string
+	edgeName      string
+	sandboxPath   string
+	nodePath      string
+	runtimePath   string
+	runtimeMode   string // "normal" or "debug", mutable via system command
+	debugPort     int
+	tz            string
+	process       *exec.Cmd
+	stdin         io.WriteCloser // kept open for IPC commands to the rule runtime
+	running       bool
+	runID         int
 	restartAttempts int
 	mu              sync.Mutex
 	ipcBridge       *IPCBridge
 	broker          messaging.Broker
 }
 
-func NewRuntimeSupervisor(workspacePath string, edgeName string, ipcBridge *IPCBridge) *RuntimeSupervisor {
+func NewRuntimeSupervisor(resolvedConfig *config.ResolvedEdgeConfig, ipcBridge *IPCBridge) *RuntimeSupervisor {
 	return &RuntimeSupervisor{
-		workspacePath: workspacePath,
-		edgeName:      edgeName,
-		sandboxPath:   util.GetEnvDefault("UHN_SANDBOX_PATH", "/usr/lib/uhn"),
-		nodePath:      util.GetEnvDefault("UHN_NODE_PATH", "/opt/node"),
-		runtimePath:   os.Getenv("UHN_RUNTIME_PATH"),
+		workspacePath: resolvedConfig.WorkspacePath,
+		edgeName:      resolvedConfig.Name,
+		sandboxPath:   resolvedConfig.SandboxPath,
+		nodePath:      resolvedConfig.NodePath,
+		runtimePath:   resolvedConfig.RuntimePath,
+		runtimeMode:   resolvedConfig.RuntimeMode,
+		debugPort:     resolvedConfig.DebugPort,
+		tz:            resolvedConfig.TZ,
 		ipcBridge:     ipcBridge,
 	}
 }
@@ -120,6 +125,20 @@ func (s *RuntimeSupervisor) IsRunning() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.running
+}
+
+// SetRuntimeMode updates the runtime mode (used by system command handler).
+func (s *RuntimeSupervisor) SetRuntimeMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeMode = mode
+}
+
+// GetRuntimeMode returns the current runtime mode.
+func (s *RuntimeSupervisor) GetRuntimeMode() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runtimeMode
 }
 
 func (s *RuntimeSupervisor) startProcess(ctx context.Context, forRunID int) {
@@ -285,13 +304,14 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 
 	cfg := &config.SandboxConfig{
 		Cwd:       "/uhn-runtime/packages/uhn-rule-runtime",
-		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + util.GetEnvDefault("TZ", "UTC")},
+		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + s.tz},
 		Limits:    &config.Limits{MemoryBytes: 512 * 1024 * 1024, MaxPids: 254},
 		RunAsUser: currentUser.Username,
 		Network:   config.NetworkLoopback,
 	}
 
 	blueprintPath := "/uhn-workspace/blueprint/active"
+	debugAddr := strconv.Itoa(s.debugPort)
 
 	switch mode {
 	case "debug":
@@ -299,12 +319,12 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 		cfg.Args = []string{
 			"tsx",
 			"--tsconfig", "/uhn-runtime/packages/uhn-rule-runtime/tsconfig.json",
-			"--inspect=127.0.0.1:9250",
+			"--inspect=127.0.0.1:" + debugAddr,
 			"/uhn-runtime/packages/uhn-rule-runtime/src/rule-runtime.ts",
 			blueprintPath, "edge", s.edgeName,
 		}
 		cfg.Network = config.NetworkDebugAttach
-		cfg.DebugListen = "0.0.0.0:9250"
+		cfg.DebugListen = "0.0.0.0:" + debugAddr
 
 	case "dev":
 		cfg.Command = "pnpm"
@@ -327,7 +347,7 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 }
 
 func (s *RuntimeSupervisor) detectMode() string {
-	if os.Getenv("UHN_RUNTIME_MODE") == "debug" {
+	if s.runtimeMode == "debug" {
 		return "debug"
 	}
 

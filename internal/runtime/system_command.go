@@ -3,8 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"os"
 
+	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/uhn"
@@ -19,29 +19,30 @@ var systemActions = map[string]bool{
 }
 
 type systemConfig struct {
-	LogLevel string `json:"logLevel"`
-	RunMode  string `json:"runMode"`
+	LogLevel  string `json:"logLevel"`
+	RunMode   string `json:"runMode"`
+	DebugPort int    `json:"debugPort"`
 }
 
 // SystemCommandHandler intercepts system commands from the cmd topic and
 // delegates everything else (resync, device commands) to the delegate subscriber.
 type SystemCommandHandler struct {
-	supervisor *RuntimeSupervisor
-	broker     messaging.Broker
-	delegate   uhn.EdgeSubscriber
-	runMode    string
+	supervisor    *RuntimeSupervisor
+	broker        messaging.Broker
+	delegate      uhn.EdgeSubscriber
+	runMode       string
+	debugPort     int
+	workspacePath string
 }
 
-func NewSystemCommandHandler(supervisor *RuntimeSupervisor, broker messaging.Broker, delegate uhn.EdgeSubscriber) *SystemCommandHandler {
-	runMode := "normal"
-	if os.Getenv("UHN_RUNTIME_MODE") == "debug" {
-		runMode = "debug"
-	}
+func NewSystemCommandHandler(resolvedConfig *config.ResolvedEdgeConfig, supervisor *RuntimeSupervisor, broker messaging.Broker, delegate uhn.EdgeSubscriber) *SystemCommandHandler {
 	return &SystemCommandHandler{
-		supervisor: supervisor,
-		broker:     broker,
-		delegate:   delegate,
-		runMode:    runMode,
+		supervisor:    supervisor,
+		broker:        broker,
+		delegate:      delegate,
+		runMode:       resolvedConfig.RuntimeMode,
+		debugPort:     resolvedConfig.DebugPort,
+		workspacePath: resolvedConfig.WorkspacePath,
 	}
 }
 
@@ -92,6 +93,7 @@ func (h *SystemCommandHandler) handleSetLogLevel(ctx context.Context, payload js
 	}
 	logging.SetLevel(level)
 	logging.Info("Log level changed", "level", p.LogLevel)
+	h.persistConfig()
 	h.PublishConfig(ctx)
 	return nil
 }
@@ -112,22 +114,29 @@ func (h *SystemCommandHandler) handleSetRunMode(ctx context.Context, payload jso
 		return nil
 	}
 	h.runMode = p.RuntimeMode
-	if p.RuntimeMode == "debug" {
-		os.Setenv("UHN_RUNTIME_MODE", "debug")
-	} else {
-		os.Setenv("UHN_RUNTIME_MODE", "")
-	}
+	h.supervisor.SetRuntimeMode(p.RuntimeMode)
 	logging.Info("Run mode changed, restarting runtime", "mode", p.RuntimeMode)
+	h.persistConfig()
 	h.PublishConfig(ctx)
 	h.supervisor.Restart(ctx)
 	return nil
 }
 
+func (h *SystemCommandHandler) persistConfig() {
+	if h.workspacePath == "" {
+		return
+	}
+	if err := config.SavePersistedRuntimeConfig(h.workspacePath, logging.GetLevelName(), h.runMode); err != nil {
+		logging.Warn("Failed to persist runtime config", "error", err)
+	}
+}
+
 // PublishConfig publishes the current system config as a retained message.
 func (h *SystemCommandHandler) PublishConfig(ctx context.Context) {
 	cfg := systemConfig{
-		LogLevel: logging.GetLevelName(),
-		RunMode:  h.runMode,
+		LogLevel:  logging.GetLevelName(),
+		RunMode:   h.runMode,
+		DebugPort: h.debugPort,
 	}
 	if err := h.broker.PublishJSON(ctx, "system/config", messaging.AtLeastOnce, true, cfg); err != nil {
 		logging.Error("Failed to publish system config", "error", err)
@@ -137,8 +146,9 @@ func (h *SystemCommandHandler) PublishConfig(ctx context.Context) {
 // OnConnectPublish implements messaging.OnConnectPublisher to republish config on reconnect.
 func (h *SystemCommandHandler) OnConnectPublish(ctx context.Context) (*messaging.ConnectMessage, error) {
 	cfg := systemConfig{
-		LogLevel: logging.GetLevelName(),
-		RunMode:  h.runMode,
+		LogLevel:  logging.GetLevelName(),
+		RunMode:   h.runMode,
+		DebugPort: h.debugPort,
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {

@@ -20,23 +20,38 @@ import (
 )
 
 func main() {
-	mqttURL := util.GetEnvDefault("MQTT_URL", "tcp://localhost:1883")
-	path := util.GetEnvDefault("EDGE_CONFIG_PATH", "/etc/uhn/edge-config.json")
-	edgeName := util.GetEnvDefault("EDGE_NAME", "edge1")
-	topicPrefix := "uhn/" + edgeName
+	cfgPath := util.GetEnvDefault("UHN_EDGE_CONFIG_PATH", "/etc/uhn/edge-config.json")
 
+	// Minimal logger for config loading errors (re-initialized below with resolved config)
 	logging.Init()
-	cfg, err := config.LoadEdgeConfig(path)
+
+	cfg, err := config.LoadEdgeConfig(cfgPath)
 	if err != nil {
 		logging.Fatal("Edge config error", "error", err)
 	}
 
+	// Resolve final config: env var > config file > defaults
+	resolvedConfig := config.ResolveEdgeConfig(cfgPath, cfg.Edge)
+
+	if err := config.ValidateEdgeName(resolvedConfig.Name); err != nil {
+		logging.Fatal("Invalid edge name", "error", err)
+	}
+
+	// Re-initialize logger with resolved log level and format
+	logging.InitWithConfig(resolvedConfig.LogLevel, resolvedConfig.LogFormat)
+
 	logging.Info("Loaded config",
+		"edge", resolvedConfig.Name,
+		"mqtt", resolvedConfig.MqttURL,
 		"buses", len(cfg.Buses),
 		"pollMs", cfg.PollIntervalMs,
+		"runtimeMode", resolvedConfig.RuntimeMode,
+		"debugPort", resolvedConfig.DebugPort,
 	)
+
+	topicPrefix := "uhn/" + resolvedConfig.Name
 	catalog := catalog.NewEdgeCatalog(cfg)
-	keyPair,err := encrypt.NewEdgeKeyPair(edgeName, path)
+	keyPair, err := encrypt.NewEdgeKeyPair(resolvedConfig.Name, cfgPath)
 	if err != nil {
 		logging.Fatal("Failed to load or create edge key pair", "error", err)
 	}
@@ -45,8 +60,8 @@ func main() {
 	defer cancel()
 
 	edgeBroker := messaging.NewEdgeBroker(messaging.BrokerConfig{
-		BrokerURL:        mqttURL,
-		ClientName:       edgeName,
+		BrokerURL:        resolvedConfig.MqttURL,
+		ClientName:       resolvedConfig.Name,
 		TopicPrefix:      topicPrefix,
 		ConnectTimeout:   10 * time.Second,
 		PublishTimeout:   5 * time.Second,
@@ -57,21 +72,19 @@ func main() {
 	edgeBroker.Connect(ctx)
 	defer edgeBroker.Close(ctx)
 
-	workspacePath := util.GetEnvDefault("UHN_WORKSPACE_PATH", "")
-
-	if workspacePath != "" {
+	if resolvedConfig.WorkspacePath != "" && resolvedConfig.RuntimePath != "" {
 		// Create IPC bridge and signal tracker
-		ipcBridge := runtime.NewIPCBridge(edgeName, cfg.DevicesByName)
+		ipcBridge := runtime.NewIPCBridge(resolvedConfig.Name, cfg.DevicesByName)
 		ipcBridge.SetBroker(edgeBroker)
 		signalTracker := runtime.NewSignalTracker()
 
-		// Create supervisor with IPC bridge
-		supervisor := runtime.NewRuntimeSupervisor(workspacePath, edgeName, ipcBridge)
+		// Create supervisor with resolved config
+		supervisor := runtime.NewRuntimeSupervisor(resolvedConfig, ipcBridge)
 		supervisor.SetBroker(edgeBroker)
 		defer supervisor.Stop(ctx)
 
 		// Wire blueprint downloader (same as before)
-		bpDownloader := blueprint.NewBlueprintDownloader(edgeName, keyPair, workspacePath)
+		bpDownloader := blueprint.NewBlueprintDownloader(resolvedConfig.Name, keyPair, resolvedConfig.WorkspacePath)
 		bpDownloader.SetBroker(edgeBroker)
 		edgeBroker.AddOnConnectPublisher("blueprint", bpDownloader)
 		bpDownloader.OnBlueprintReady = func() { supervisor.Restart(ctx) }
@@ -109,11 +122,11 @@ func main() {
 		}
 
 		// Create and set action handler (needs pollers)
-		actionHandler := runtime.NewEdgeActionHandler(edgeName, pollers, edgeBroker, ipcBridge, signalTracker)
+		actionHandler := runtime.NewEdgeActionHandler(resolvedConfig.Name, pollers, edgeBroker, ipcBridge, signalTracker)
 		ipcBridge.SetActionHandler(actionHandler)
 
 		// Wrap pollers with system command handler so cmd topic reaches both
-		sysHandler := runtime.NewSystemCommandHandler(supervisor, edgeBroker, pollers)
+		sysHandler := runtime.NewSystemCommandHandler(resolvedConfig, supervisor, edgeBroker, pollers)
 		edgeBroker.AddOnConnectPublisher("system-config", sysHandler)
 		sysHandler.PublishConfig(ctx)
 
@@ -129,7 +142,7 @@ func main() {
 			supervisor.Start(ctx)
 		}
 	} else {
-		logging.Info("UHN_WORKSPACE_PATH not set, blueprint downloader and rule runtime not activated")
+		logging.Info("UHN_WORKSPACE_PATH or UHN_RUNTIME_PATH not set, blueprint downloader and rule runtime not activated")
 		edgeBroker.Publish(ctx, "runtime/status", messaging.AtLeastOnce, true, []byte("unconfigured"))
 		edgeBroker.Publish(ctx, "runtime/rules", messaging.AtLeastOnce, true, []byte{})
 		edgeBroker.Publish(ctx, "blueprint/activated", messaging.AtLeastOnce, true, []byte{})

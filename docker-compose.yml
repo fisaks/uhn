@@ -19,9 +19,9 @@ services:
     depends_on: [mosquitto]
     ports: ["8080:8080"] # REST API
     environment:
-      - MQTT_URL=tcp://mosquitto:1883
-      - EDGE_NAME=edge-dev-1
-      - EDGE_CONFIG_PATH=/config/edge-config.json
+      - UHN_MQTT_URL=tcp://mosquitto:1883
+      - UHN_EDGE_NAME=edge-dev-1
+      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
     profiles: ["dev", "test"]
 
   # Prod: edge only, talking to a real RS-485 dongle (/dev/ttyUSB0)
@@ -31,9 +31,9 @@ services:
       dockerfile: ./cmd/server/edge/Dockerfile
     depends_on: [mosquitto]
     environment:
-      - MQTT_URL=tcp://mosquitto:1883
-      - EDGE_NAME=edge1
-      - EDGE_CONFIG_PATH=/config/edge-config.json
+      - UHN_MQTT_URL=tcp://mosquitto:1883
+      - UHN_EDGE_NAME=edge1
+      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
     # Pass real serial device through to container
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
@@ -48,9 +48,9 @@ services:
       dockerfile: ./cmd/server/edge/Dockerfile
     depends_on: [mosquitto]
     environment:
-      - MQTT_URL=tcp://mosquitto:1883
-      - EDGE_NAME=edge-dev-real-1
-      - EDGE_CONFIG_PATH=/config/edge-config.json
+      - UHN_MQTT_URL=tcp://mosquitto:1883
+      - UHN_EDGE_NAME=edge-dev-real-1
+      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
     profiles: ["dev-real"]

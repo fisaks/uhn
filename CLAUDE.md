@@ -66,12 +66,48 @@ Four-tier isolation for user rules: launcher → setup (runs as root, sets up na
 
 Python pytest suite that talks to the RTU simulator via HTTP and watches MQTT state topics. Requires the docker-test environment. Fixtures defined in `conftest.py` with `RtuSimClient` and `MqttWatcher` helpers.
 
-## Environment Variables
+## Configuration
 
-- `MQTT_URL` — Broker address (default: `tcp://localhost:1883`)
-- `EDGE_NAME` — Edge identifier
-- `EDGE_CONFIG_PATH` — Path to edge config JSON
-- `UHN_LOG_LEVEL` — `debug`, `info`, `warn`, `error`
-- `LOG_FORMAT` — `json` (default) or `text`
-- `UHN_WORKSPACE_PATH` — Sandbox workspace path
-- `UHN_SANDBOX_PATH` — Sandbox binary location
+Configuration uses three tiers with clear priority: **env var > config file > default**.
+
+### Edge Config File (`edge.` section)
+
+The JSON config file has an optional `edge` section for identity, connectivity, and initial runtime settings:
+
+```json
+{
+    "edge": {
+        "name": "edge1",
+        "mqtt": "tcp://localhost:2883",
+        "logLevel": "info",
+        "runtimeMode": "normal",
+        "debugPort": 9251,
+        "logFormat": "json"
+    },
+    "buses": [...]
+}
+```
+
+All `edge` fields are optional — env vars or defaults apply when omitted.
+
+### Environment Variables
+
+**Infrastructure paths (env-only, not in config file):**
+- `UHN_EDGE_CONFIG_PATH` — Path to edge config JSON (default: `/etc/uhn/edge-config.json`)
+- `UHN_WORKSPACE_PATH` — Blueprint workspace root; if empty, runtime is disabled
+- `UHN_SANDBOX_PATH` — Sandbox binary location (default: `/usr/lib/uhn`)
+- `UHN_NODE_PATH` — Node.js install path (default: `/opt/node`)
+- `UHN_RUNTIME_PATH` — Path to the installed Node rule-runtime; required to start a local runtime
+- `TZ` — Timezone for sandbox (default: `UTC`)
+
+**Override env vars (take priority over config file):**
+- `UHN_EDGE_NAME` — Overrides `edge.name` (required — no default)
+- `UHN_MQTT_URL` — Overrides `edge.mqtt` (default: `tcp://localhost:1883`)
+- `UHN_LOG_LEVEL` — Overrides `edge.logLevel` (default: `info`)
+- `UHN_LOG_FORMAT` — Overrides `edge.logFormat` (default: `json`)
+- `UHN_RUNTIME_MODE` — Overrides `edge.runtimeMode` (default: `normal`)
+- `UHN_DEBUG_PORT` — Overrides `edge.debugPort` (default: auto from edge name hash)
+
+### MQTT Runtime Overrides (highest priority)
+
+`logLevel` and `runtimeMode` can be changed at runtime via system commands from UHN Master. These values are persisted to `$UHN_WORKSPACE_PATH/runtime-config.json` and take precedence over env vars and config file values, even across edge restarts.
