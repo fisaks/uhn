@@ -141,6 +141,13 @@ func (s *RuntimeSupervisor) GetRuntimeMode() string {
 	return s.runtimeMode
 }
 
+// SetDebugPort updates the debug port (used by system command handler).
+func (s *RuntimeSupervisor) SetDebugPort(port int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.debugPort = port
+}
+
 func (s *RuntimeSupervisor) startProcess(ctx context.Context, forRunID int) {
 	launcherPath := filepath.Join(s.sandboxPath, "uhn-sandbox-launch")
 	if _, err := os.Stat(launcherPath); err != nil {

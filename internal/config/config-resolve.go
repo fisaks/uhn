@@ -76,6 +76,9 @@ func ResolveEdgeConfig(cfgPath string, edge *EdgeSettings) *ResolvedEdgeConfig {
 			if p.RuntimeMode != "" {
 				r.RuntimeMode = p.RuntimeMode
 			}
+			if p.DebugPort > 0 {
+				r.DebugPort = p.DebugPort
+			}
 		}
 	}
 
@@ -87,6 +90,7 @@ const persistedConfigFile = "runtime-config.json"
 type persistedRuntimeConfig struct {
 	LogLevel    string `json:"logLevel,omitempty"`
 	RuntimeMode string `json:"runtimeMode,omitempty"`
+	DebugPort   int    `json:"debugPort,omitempty"`
 }
 
 // LoadPersistedRuntimeConfig reads the last MQTT-set logLevel/runtimeMode from disk.
@@ -102,10 +106,10 @@ func LoadPersistedRuntimeConfig(workspacePath string) (*persistedRuntimeConfig, 
 	return &p, nil
 }
 
-// SavePersistedRuntimeConfig writes the current logLevel/runtimeMode to disk
+// SavePersistedRuntimeConfig writes the current logLevel/runtimeMode/debugPort to disk
 // so they survive edge restarts.
-func SavePersistedRuntimeConfig(workspacePath, logLevel, runtimeMode string) error {
-	p := persistedRuntimeConfig{LogLevel: logLevel, RuntimeMode: runtimeMode}
+func SavePersistedRuntimeConfig(workspacePath, logLevel, runtimeMode string, debugPort int) error {
+	p := persistedRuntimeConfig{LogLevel: logLevel, RuntimeMode: runtimeMode, DebugPort: debugPort}
 	data, err := json.Marshal(p)
 	if err != nil {
 		return err

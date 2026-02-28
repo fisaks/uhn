@@ -16,6 +16,7 @@ var systemActions = map[string]bool{
 	"restartRuntime": true,
 	"setLogLevel":    true,
 	"setRunMode":     true,
+	"setDebugPort":   true,
 }
 
 type systemConfig struct {
@@ -74,6 +75,8 @@ func (h *SystemCommandHandler) handleSystemCommand(ctx context.Context, cmd uhn.
 		return h.handleSetLogLevel(ctx, cmd.Payload)
 	case "setRunMode":
 		return h.handleSetRunMode(ctx, cmd.Payload)
+	case "setDebugPort":
+		return h.handleSetDebugPort(ctx, cmd.Payload)
 	}
 	return nil
 }
@@ -122,11 +125,34 @@ func (h *SystemCommandHandler) handleSetRunMode(ctx context.Context, payload jso
 	return nil
 }
 
+func (h *SystemCommandHandler) handleSetDebugPort(ctx context.Context, payload json.RawMessage) error {
+	var p struct {
+		DebugPort int `json:"debugPort"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		logging.Warn("Invalid setDebugPort payload", "error", err)
+		return err
+	}
+	if p.DebugPort < 1024 || p.DebugPort > 65535 {
+		logging.Warn("Invalid debug port", "port", p.DebugPort)
+		return nil
+	}
+	if p.DebugPort == h.debugPort {
+		return nil
+	}
+	h.debugPort = p.DebugPort
+	h.supervisor.SetDebugPort(p.DebugPort)
+	logging.Info("Debug port changed", "port", p.DebugPort)
+	h.persistConfig()
+	h.PublishConfig(ctx)
+	return nil
+}
+
 func (h *SystemCommandHandler) persistConfig() {
 	if h.workspacePath == "" {
 		return
 	}
-	if err := config.SavePersistedRuntimeConfig(h.workspacePath, logging.GetLevelName(), h.runMode); err != nil {
+	if err := config.SavePersistedRuntimeConfig(h.workspacePath, logging.GetLevelName(), h.runMode, h.debugPort); err != nil {
 		logging.Warn("Failed to persist runtime config", "error", err)
 	}
 }
