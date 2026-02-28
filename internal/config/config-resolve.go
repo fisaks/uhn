@@ -25,6 +25,7 @@ type ResolvedEdgeConfig struct {
 	LogFormat     string
 	RuntimeMode   string
 	DebugPort     int
+	DebugHost     string
 	TZ            string
 }
 
@@ -53,6 +54,9 @@ func ResolveEdgeConfig(cfgPath string, edge *EdgeSettings) *ResolvedEdgeConfig {
 	r.NodePath = envOrDefault("UHN_NODE_PATH", "/opt/node")
 	r.RuntimePath = os.Getenv("UHN_RUNTIME_PATH")
 	r.TZ = envOrDefault("TZ", "UTC")
+
+	// Debug host: env > config (display-only, NOT overridden by MQTT)
+	r.DebugHost = resolve(os.Getenv("UHN_PUBLIC_HOST"), edge.DebugHost, "")
 
 	// Debug port: env > config > auto
 	if envPort := os.Getenv("UHN_DEBUG_PORT"); envPort != "" {

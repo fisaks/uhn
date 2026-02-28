@@ -82,6 +82,7 @@ The JSON config file has an optional `edge` section for identity, connectivity, 
         "logLevel": "info",
         "runtimeMode": "normal",
         "debugPort": 9251,
+        "debugHost": "192.168.1.10",
         "logFormat": "json"
     },
     "buses": [...]
@@ -107,7 +108,8 @@ All `edge` fields are optional — env vars or defaults apply when omitted.
 - `UHN_LOG_FORMAT` — Overrides `edge.logFormat` (default: `json`)
 - `UHN_RUNTIME_MODE` — Overrides `edge.runtimeMode` (default: `normal`)
 - `UHN_DEBUG_PORT` — Overrides `edge.debugPort` (default: auto from edge name hash)
+- `UHN_PUBLIC_HOST` — Overrides `edge.debugHost` (display-only host/IP for debug port, no default)
 
 ### MQTT Runtime Overrides (highest priority)
 
-`logLevel` and `runtimeMode` can be changed at runtime via system commands from UHN Master. These values are persisted to `$UHN_WORKSPACE_PATH/runtime-config.json` and take precedence over env vars and config file values, even across edge restarts.
+`logLevel`, `runtimeMode`, and `debugPort` can be changed at runtime via system commands from UHN Master. These values are persisted to `$UHN_WORKSPACE_PATH/runtime-config.json` and take precedence over env vars and config file values, even across edge restarts. Note: `debugHost` is NOT overridden by MQTT — it is resolved only from env var or config file.

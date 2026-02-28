@@ -23,6 +23,7 @@ type systemConfig struct {
 	LogLevel  string `json:"logLevel"`
 	RunMode   string `json:"runMode"`
 	DebugPort int    `json:"debugPort"`
+	DebugHost string `json:"debugHost,omitempty"`
 }
 
 // SystemCommandHandler intercepts system commands from the cmd topic and
@@ -33,6 +34,7 @@ type SystemCommandHandler struct {
 	delegate      uhn.EdgeSubscriber
 	runMode       string
 	debugPort     int
+	debugHost     string
 	workspacePath string
 }
 
@@ -43,6 +45,7 @@ func NewSystemCommandHandler(resolvedConfig *config.ResolvedEdgeConfig, supervis
 		delegate:      delegate,
 		runMode:       resolvedConfig.RuntimeMode,
 		debugPort:     resolvedConfig.DebugPort,
+		debugHost:     resolvedConfig.DebugHost,
 		workspacePath: resolvedConfig.WorkspacePath,
 	}
 }
@@ -163,6 +166,7 @@ func (h *SystemCommandHandler) PublishConfig(ctx context.Context) {
 		LogLevel:  logging.GetLevelName(),
 		RunMode:   h.runMode,
 		DebugPort: h.debugPort,
+		DebugHost: h.debugHost,
 	}
 	if err := h.broker.PublishJSON(ctx, "system/config", messaging.AtLeastOnce, true, cfg); err != nil {
 		logging.Error("Failed to publish system config", "error", err)
@@ -175,6 +179,7 @@ func (h *SystemCommandHandler) OnConnectPublish(ctx context.Context) (*messaging
 		LogLevel:  logging.GetLevelName(),
 		RunMode:   h.runMode,
 		DebugPort: h.debugPort,
+		DebugHost: h.debugHost,
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {

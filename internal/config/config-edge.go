@@ -23,6 +23,7 @@ type EdgeSettings struct {
 	LogLevel    string `json:"logLevel,omitempty"`    // initial boot default
 	RuntimeMode string `json:"runtimeMode,omitempty"` // initial boot default
 	DebugPort   int    `json:"debugPort,omitempty"`   // 0 = auto (base + offset from name)
+	DebugHost   string `json:"debugHost,omitempty"`   // display-only host/IP for debug port
 	LogFormat   string `json:"logFormat,omitempty"`    // "json" (default) or "text"
 }
 

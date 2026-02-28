@@ -75,6 +75,7 @@ start_dev_env() {
     export UHN_MQTT_URL=tcp://localhost:1883
     export UHN_EDGE_NAME=edge1
     export UHN_LOG_LEVEL=debug
+    export UHN_PUBLIC_HOST=$(hostname -I | awk '{print $1}')
     
     echo "🧩 Edge connected to: $EDGE_PORT"
     echo "🧩 RTU simulator listening on: $SIM_PORT"
@@ -97,7 +98,8 @@ start_dev_env() {
         -e "TZ=$TZ" \
         -e UHN_MQTT_URL="$UHN_MQTT_URL" \
         -e UHN_EDGE_NAME="$UHN_EDGE_NAME" \
-        -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL"
+        -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL" \
+        -e UHN_PUBLIC_HOST="$UHN_PUBLIC_HOST"
     #tmux send-keys -t $SESSION.0 "mosquitto_sub -h localhost -t 'uhn/#' -v" C-m
     tmux send-keys -t $SESSION.0 "go build -o tmp/uhn-monitor ./cmd/tools/monitor && ./tmp/uhn-monitor" C-m
     
