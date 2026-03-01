@@ -15,6 +15,14 @@
             "timeoutMs": 150,
             "settleBeforeRequestMs": 5,
             "settleAfterWriteMs": 10
+        },
+        {
+            "busId": "bus_tcp",
+            "type": "tcp",
+            "tcpAddr": "localhost:1502",
+            "timeoutMs": 150,
+            "settleBeforeRequestMs": 5,
+            "settleAfterWriteMs": 10
         }
     ],
     "catalog": {
@@ -106,6 +114,26 @@
             "capabilities": {
                 "toggleWord": 21760
             }
+        },
+        "shelly.pro3em": {
+            "vendor": "Shelly",
+            "model": "Pro 3EM",
+            "digitalOutputs": null,
+            "digitalInputs": null,
+            "analogOutputs": null,
+            "analogInputs": {
+                "start": 1000,
+                "count": 75
+            },
+            "limits": {
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            }
         }
     },
     "devices": {
@@ -135,7 +163,33 @@
                 "unitId": 5,
                 "type": "waveshare.io8"
             }
-
+        ],
+        "bus_tcp": [
+            {
+                "name": "tcp_io8_1",
+                "unitId": 1,
+                "type": "waveshare.io8"
+            },
+            {
+                "name": "tcp_relay8_1",
+                "unitId": 2,
+                "type": "waveshare.relay8"
+            },
+            {
+                "name": "tcp_io16_out",
+                "unitId": 3,
+                "type": "test.io16"
+            },
+            {
+                "name": "tcp_di16_in",
+                "unitId": 4,
+                "type": "test.di16"
+            },
+            {
+                "name": "energy_meter_1",
+                "unitId": 5,
+                "type": "shelly.pro3em"
+            }
         ]
     },
     "heartbeatInterval": 600,

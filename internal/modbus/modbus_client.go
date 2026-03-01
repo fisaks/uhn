@@ -34,16 +34,6 @@ type ModbusDeviceClient struct {
 	lastConnErr error
 }
 
-// TCP doesn’t have .Close(), so wrap it:
-type TCPHandlerWithClose struct {
-	*modbus.TCPClientHandler
-}
-
-func (h *TCPHandlerWithClose) Close() error {
-	// TCP doesn't need explicit close; safe no-op
-	return nil
-}
-
 func newModbusDeviceClient(handler ModbusHandler, busId string) *ModbusDeviceClient {
 	return &ModbusDeviceClient{
 		handler:     handler,
@@ -72,6 +62,7 @@ func NewRTUDeviceClient(bus *config.BusConfig) *ModbusDeviceClient {
 func NewTCPDeviceClient(bus *config.BusConfig) *ModbusDeviceClient {
 	handler := modbus.NewTCPClientHandler(bus.TCPAddr)
 	handler.Timeout = bus.Timeout()
+
 	if bus.Debug {
 		handler.Logger = logging.WrapSlog("bus", bus.BusId)
 	}
@@ -98,7 +89,6 @@ func (m *ModbusDeviceClient) EnsureConnected(ctx context.Context) error {
 		return err
 	}
 
-	m.client = modbus.NewClient(m.handler)
 	m.connOK = true
 	m.backoff = 0
 	m.lastConnErr = nil

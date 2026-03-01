@@ -12,24 +12,18 @@ class MqttWatcher:
         self.q: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
         self.connected = Event()
         self._subscribed = Event()
-        # self.client = mqtt.Client(client_id or f"test-{uuid.uuid4().hex}")
-        self.client = mqtt.Client()
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_subscribe = self._on_subscribe
         self.client.connect(broker, port)
         self.client.loop_start()
 
-    def _on_connect(self, client, userdata, flags, rc):
-        # rc == 0 -> success
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
             self.connected.set()
-        else:
-            # optionally log rc/raise in tests
-            pass
 
-    def _on_subscribe(self, client, userdata, mid, granted_qos):
-        # subscription acknowledged by broker
+    def _on_subscribe(self, client, userdata, mid, reason_codes, properties):
         self._subscribed.set()
 
     def _on_message(self, client, userdata, msg):
@@ -39,11 +33,9 @@ class MqttWatcher:
         except json.JSONDecodeError:
             obj = payload
 
-         
-            
         self._log_message(msg.topic, obj)
         self.q.put((msg.topic, obj))
-    
+
     def _log_message(self, topic:str,obj:Any):
         display = dict(obj)
         for key in ("digitalOutputs", "digitalInputs"):
@@ -62,12 +54,10 @@ class MqttWatcher:
 
     def subscribe(self, topic: str, wait: float = 3.0) -> None:
         """Subscribe and wait for subscribe acknowledgement or connection."""
-        # ensure connected first (wait up to `wait`)
         if not self.connected.wait(timeout=wait):
             raise RuntimeError("MQTT client did not connect in time")
         self._subscribed.clear()
         self.client.subscribe(topic)
-        # wait for on_subscribe callback (broker ack)
         self._subscribed.wait(timeout=wait)
 
     def wait_for(self, timeout: float = 5.0) -> Tuple[str, Any]:
@@ -93,7 +83,6 @@ class MqttWatcher:
         self.client.loop_stop()
         self.client.disconnect()
 
-    # context manager support -- usage: "with MqttWatcher(...) as w:"
     def __enter__(self) -> "MqttWatcher":
         return self
 

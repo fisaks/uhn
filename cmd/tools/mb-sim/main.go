@@ -1,43 +1,57 @@
 package main
 
-// cSpell:ignore mbserver Modbus
 import (
+	"context"
 	"log"
-	//"net"
 	"os"
 	"time"
 
-	"github.com/tbrandon/mbserver"
+	"github.com/fisaks/uhn/internal/config"
+	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/simulator"
 )
 
 func main() {
-	addr := os.Getenv("MB_LISTEN_ADDR")
-	if addr == "" {
-		addr = ":1502"
+	configPath := os.Getenv("SIM_CONFIG_PATH")
+	if configPath == "" {
+		log.Fatal("SIM_CONFIG_PATH not set")
 	}
 
-	srv := mbserver.NewServer()
-	// Seed a few registers/coils
-	//srv.HoldingRegisters[0] = 123 // HR40001
-	//srv.HoldingRegisters[1] = 456 // HR40002
-	//srv.InputRegisters[0] = 321   // IR30001
-	srv.Coils[0] = 1          // C00001
-	srv.Coils[1] = 1          // C00001
-	srv.Coils[2] = 0          // C00001
-	srv.Coils[3] = 0          // C00001
-	srv.DiscreteInputs[0] = 0 // DI10001
+	restAddr := os.Getenv("SIM_REST_ADDR")
+	if restAddr == "" {
+		restAddr = ":8080"
+	}
 
-	/*_, err := net.Listen("tcp", addr)
+	logging.Init()
+	edgeConfig, err := config.LoadEdgeConfig(configPath)
 	if err != nil {
-		log.Fatalf("listen: %v", err)
-	}*/
-	if err := srv.ListenTCP(addr); err != nil {
-		log.Fatalf("ListenTCP: %v", err)
+		log.Fatalf("Edge config error: %v", err)
 	}
-	defer srv.Close()
-	log.Printf("Modbus TCP slave listening on %s", addr)
-	// Wait forever
-	for {
-		time.Sleep(1 * time.Second)
+
+	// Set up all buses (no filter)
+	simStore, err := simulator.SetupFromConfig(edgeConfig)
+	if err != nil {
+		log.Fatalf("Simulator setup error: %v", err)
 	}
+
+	// Start RTU listeners (if any RTU buses exist)
+	if err := simulator.StartListenRTU(simStore, edgeConfig.Buses); err != nil {
+		log.Fatalf("RTU listen error: %v", err)
+	}
+
+	// Start TCP listeners (if any TCP buses exist)
+	tcpCtrl, err := simulator.StartListenTCP(simStore, edgeConfig.Buses)
+	if err != nil {
+		log.Fatalf("TCP listen error: %v", err)
+	}
+
+	// Start profile ticker for virtual devices (e.g., Shelly Pro 3EM)
+	simStore.StartProfileTicker(context.Background(), 1*time.Second)
+
+	// Single REST API serving all buses
+	if err := simulator.StartRestAPI(simStore, restAddr, tcpCtrl); err != nil {
+		log.Fatalf("REST API error: %v", err)
+	}
+
+	select {}
 }

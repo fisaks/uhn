@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: ./cmd/server/edge/Dockerfile.dev
     depends_on: [mosquitto]
-    ports: ["8080:8080"] # REST API
+    ports: ["8080:8080"] # Simulator REST API
     environment:
       - UHN_MQTT_URL=tcp://mosquitto:1883
       - UHN_EDGE_NAME=edge-dev-1

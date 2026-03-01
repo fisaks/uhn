@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import time
 from typing import Dict, List, Literal, Optional
-from common.rtu_sim_client import RtuSimClient
+from common.sim_client import SimClient
 from common.mqtt_watcher import MqttWatcher
 from dsl.device_model import TestDevice
 from common.types import Catalog, Command, DeviceCommand, DeviceState
@@ -109,7 +109,7 @@ class Scenario:
     Multi-device fluent test scenario. Use given(sim, mqtt) to create one.
     """
 
-    def __init__(self, sim: RtuSimClient, mqtt: MqttWatcher):
+    def __init__(self, sim: SimClient, mqtt: MqttWatcher):
         self.sim = sim
         self.mqtt = mqtt
         self.devices: Dict[str, TestDevice] = {}
@@ -484,5 +484,5 @@ class Scenario:
        
 
 # factory
-def given( sim: RtuSimClient, mqtt: MqttWatcher) -> Scenario:
+def given( sim: SimClient, mqtt: MqttWatcher) -> Scenario:
     return Scenario(sim, mqtt)

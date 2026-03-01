@@ -18,11 +18,11 @@ start_dev_env() {
     if [[ "$debug" == "true" ]]; then
         echo "running in debug hot reload mode"
         EDGE_AIR_FILE=".air-dvl.toml"
-        RTU_SIM_AIR_FILE=".air-rtu-dvl.toml"
+        SIM_AIR_FILE=".air-sim-dvl.toml"
     else
         echo "running in hot reload mode"
         EDGE_AIR_FILE=".air.toml"
-        RTU_SIM_AIR_FILE=".air-rtu.toml"
+        SIM_AIR_FILE=".air-sim.toml"
     fi
     # Start Mosquitto container before anything else
     if ! docker ps --format '{{.Names}}' | grep -q '^uhn-mosquitto$$'; then
@@ -78,7 +78,7 @@ start_dev_env() {
     export UHN_PUBLIC_HOST=$(hostname -I | awk '{print $1}')
     
     echo "🧩 Edge connected to: $EDGE_PORT"
-    echo "🧩 RTU simulator listening on: $SIM_PORT"
+    echo "🧩 Simulator listening on: $SIM_PORT"
     echo "📊 Log level: $UHN_LOG_LEVEL"
     echo "📡 MQTT: $UHN_MQTT_URL"
     echo "📄 Config: $UHN_EDGE_CONFIG_PATH / $SIM_CONFIG_PATH"
@@ -116,9 +116,9 @@ start_dev_env() {
     # Pane 1: Edge server via air
     tmux send-keys -t $SESSION.2 "cd $WORKDIR && air -c $EDGE_AIR_FILE" C-m
     
-    # Split Pane 1 horizontally → Pane 2: RTU simulator
+    # Split Pane 1 horizontally → Pane 2: Modbus simulator
     tmux split-window -h -t $SESSION.2
-    tmux send-keys -t $SESSION.3 "cd $WORKDIR && air -c $RTU_SIM_AIR_FILE" C-m
+    tmux send-keys -t $SESSION.3 "cd $WORKDIR && air -c $SIM_AIR_FILE" C-m
    
     
     # Focus back to edge pane

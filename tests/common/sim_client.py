@@ -1,19 +1,19 @@
-# file: tests/rtu_sim_client.py
+# file: tests/common/sim_client.py
 from typing import Any, Dict, Literal, Optional
 import requests
 import time
 
 
-class RtuSimError(Exception):
+class SimClientError(Exception):
     pass
 
 
-class RtuSimClient:
+class SimClient:
     """
-    Lightweight client wrapper for the RTU simulator REST API.
+    Lightweight client wrapper for the Modbus simulator REST API.
 
     Usage:
-        sim = RtuSimClient("http://localhost:8080", timeout=3.0)
+        sim = SimClient("http://localhost:8080", timeout=3.0)
         sim.set_digital_output("bus1", "io_kitchen", 3, 1)
         sim.wait_for_digital_output("bus1", "io_kitchen", 3, expected=1, timeout=5.0)
     """
@@ -38,9 +38,9 @@ class RtuSimClient:
         try:
             resp = self.session.request(method, url, **kwargs)
         except requests.RequestException as e:
-            raise RtuSimError(f"request error {method} {url}: {e}") from e
+            raise SimClientError(f"request error {method} {url}: {e}") from e
         if not (200 <= resp.status_code < 300):
-            raise RtuSimError(f"{method} {url} -> {resp.status_code}: {resp.text}")
+            raise SimClientError(f"{method} {url} -> {resp.status_code}: {resp.text}")
         return resp
 
     # --- API methods ---
@@ -143,8 +143,17 @@ class RtuSimClient:
         try:
             resp = self._request("GET", "/")
             return True
-        except RtuSimError:
+        except SimClientError:
             return False
+
+    # Admin lifecycle control (for chaos testing)
+    def admin_stop(self) -> Dict[str, Any]:
+        resp = self._request("POST", "/admin/stop")
+        return resp.json()
+
+    def admin_start(self) -> Dict[str, Any]:
+        resp = self._request("POST", "/admin/start")
+        return resp.json()
 
     # Convenience wait helper: poll until the digital output matches expected or timeout
     def wait_for_digital_output(
@@ -160,7 +169,7 @@ class RtuSimClient:
         while time.time() < deadline:
             try:
                 res = self.get_digital_output(bus_id, device_name, index)
-            except RtuSimError:
+            except SimClientError:
                 time.sleep(poll_interval)
                 continue
             val = int(res.get("value", 0))
