@@ -47,8 +47,10 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 	}
 
 	switch action.Type {
-	case "setOutput":
-		h.handleSetOutput(ctx, action, resource)
+	case "setDigitalOutput":
+		h.handleSetDigitalOutput(ctx, action, resource)
+	case "setAnalogOutput":
+		h.handleSetAnalogOutput(ctx, action, resource)
 	case "emitSignal":
 		h.handleEmitSignal(ctx, action, resource)
 	case "timerStart", "timerClear":
@@ -62,21 +64,21 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 	}
 }
 
-// handleSetOutput pushes a digital output command to the appropriate poller.
-func (h *EdgeActionHandler) handleSetOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+// handleSetDigitalOutput pushes a digital output command to the appropriate poller.
+func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
 	if resource.Type != "digitalOutput" {
-		logging.Warn("setOutput on non-output resource", "resourceId", action.ResourceID, "type", resource.Type)
+		logging.Warn("setDigitalOutput on non-digitalOutput resource", "resourceId", action.ResourceID, "type", resource.Type)
 		return
 	}
 
 	if resource.Pin == nil {
-		logging.Warn("setOutput on resource without pin", "resourceId", action.ResourceID)
+		logging.Warn("setDigitalOutput on resource without pin", "resourceId", action.ResourceID)
 		return
 	}
 
 	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
 	if bp == nil || device == nil {
-		logging.Warn("setOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
+		logging.Warn("setDigitalOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
 		return
 	}
 
@@ -89,9 +91,56 @@ func (h *EdgeActionHandler) handleSetOutput(ctx context.Context, action RuntimeA
 	}
 
 	if !bp.PushCommand(cmd) {
-		logging.Warn("setOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
+		logging.Warn("setDigitalOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
 	} else {
-		logging.Debug("setOutput pushed", "resourceId", action.ResourceID, "pin", *resource.Pin, "value", value)
+		logging.Debug("setDigitalOutput pushed", "resourceId", action.ResourceID, "pin", *resource.Pin, "value", value)
+	}
+}
+
+// handleSetAnalogOutput pushes an analog output command to the appropriate poller.
+func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	if resource.Type != "analogOutput" {
+		logging.Warn("setAnalogOutput on non-analogOutput resource", "resourceId", action.ResourceID, "type", resource.Type)
+		return
+	}
+
+	if resource.Pin == nil {
+		logging.Warn("setAnalogOutput on resource without pin", "resourceId", action.ResourceID)
+		return
+	}
+
+	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
+	if bp == nil || device == nil {
+		logging.Warn("setAnalogOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
+		return
+	}
+
+	value := toUint16Value(action.Value)
+	cmd := uhn.DeviceCommand{
+		Device:  device,
+		Action:  "setanalogoutput",
+		Address: uint16(*resource.Pin),
+		Value:   value,
+	}
+
+	if !bp.PushCommand(cmd) {
+		logging.Warn("setAnalogOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
+	} else {
+		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", *resource.Pin, "value", value)
+	}
+}
+
+// toUint16Value converts a numeric value (typically float64 from JSON) to uint16.
+func toUint16Value(v any) uint16 {
+	switch val := v.(type) {
+	case float64:
+		return uint16(val)
+	case int:
+		return uint16(val)
+	case int64:
+		return uint16(val)
+	default:
+		return 0
 	}
 }
 

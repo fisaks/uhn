@@ -23,7 +23,7 @@ type RuntimeResource struct {
 // RuntimeAction is emitted by the rule engine when a rule fires.
 // Fields are a superset of all action types; only relevant fields are populated.
 type RuntimeAction struct {
-	Type       string `json:"type"`                 // "setOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute"
+	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute"
 	ResourceID string `json:"resourceId,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	// Mute-specific fields
@@ -86,31 +86,14 @@ type LogEvent struct {
 
 // --- Rules loaded IPC types ---
 
-// RuntimeRuleTriggerInfo is a serialized trigger (matches TypeScript RuntimeRuleTriggerInfo).
-type RuntimeRuleTriggerInfo struct {
-	Kind        string `json:"kind"`
-	ResourceID  string `json:"resourceId"`
-	Event       string `json:"event,omitempty"`
-	ThresholdMs int    `json:"thresholdMs,omitempty"`
-}
-
-// RuntimeRuleInfo is a serialized rule (matches TypeScript RuntimeRuleInfo).
-type RuntimeRuleInfo struct {
-	ID              string                   `json:"id"`
-	Name            string                   `json:"name,omitempty"`
-	Description     string                   `json:"description,omitempty"`
-	ExecutionTarget string                   `json:"executionTarget,omitempty"`
-	Triggers        []RuntimeRuleTriggerInfo `json:"triggers"`
-	Priority        *int                     `json:"priority,omitempty"`
-	SuppressMs      *int                     `json:"suppressMs,omitempty"`
-	CooldownMs      *int                     `json:"cooldownMs,omitempty"`
-}
-
 // RulesLoadedEvent is emitted by the runtime after rules are loaded.
+// Go only uses the rule count and IDs — extra fields are ignored by json.Unmarshal.
 type RulesLoadedEvent struct {
-	Kind  string            `json:"kind"` // "event"
-	Cmd   string            `json:"cmd"`  // "rulesLoaded"
-	Rules []RuntimeRuleInfo `json:"rules"`
+	Kind  string `json:"kind"` // "event"
+	Cmd   string `json:"cmd"`  // "rulesLoaded"
+	Rules []struct {
+		ID string `json:"id"`
+	} `json:"rules"`
 }
 
 // --- Timer IPC types ---

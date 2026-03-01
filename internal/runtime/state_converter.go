@@ -33,6 +33,56 @@ func ExtractResourceStates(
 			state.Name, "digitalOutput", resourceMap, timestamp)
 	}
 
+	// Analog inputs
+	if spec.AnalogInputs != nil && len(state.AnalogInputs) > 0 {
+		out = extractRegisters(out, state.AnalogInputs, spec.AnalogInputs,
+			state.Name, "analogInput", resourceMap, timestamp)
+	}
+
+	// Analog outputs
+	if spec.AnalogOutputs != nil && len(state.AnalogOutputs) > 0 {
+		out = extractRegisters(out, state.AnalogOutputs, spec.AnalogOutputs,
+			state.Name, "analogOutput", resourceMap, timestamp)
+	}
+
+	return out
+}
+
+// extractRegisters iterates over the register range, extracts 16-bit big-endian
+// values, and maps them to resource IDs via the resource map.
+func extractRegisters(
+	out []RuntimeResourceState,
+	data []byte,
+	regRange *config.Range,
+	deviceName string,
+	resourceType string,
+	resourceMap *ResourceMap,
+	timestamp int64,
+) []RuntimeResourceState {
+	start := int(regRange.Start)
+	count := int(regRange.Count)
+
+	for i := 0; i < count; i++ {
+		byteOffset := i * 2
+
+		if byteOffset+1 >= len(data) {
+			break
+		}
+
+		reg := start + i
+		resourceID, ok := resourceMap.LookupResourceID(deviceName, resourceType, reg)
+		if !ok {
+			continue
+		}
+
+		value := int(data[byteOffset])<<8 | int(data[byteOffset+1]) // big-endian uint16
+
+		out = append(out, RuntimeResourceState{
+			ResourceID: resourceID,
+			Value:      value,
+			Timestamp:  timestamp,
+		})
+	}
 	return out
 }
 

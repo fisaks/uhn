@@ -26,5 +26,7 @@ type DeviceClient interface {
 
 	ReadDeviceAnalogOutput(ctx context.Context, device *config.DeviceConfig) ([]byte, error)
 	ReadDeviceAnalogInput(ctx context.Context, device *config.DeviceConfig) ([]byte, error)
+
+	WriteSingleAnalogOutput(ctx context.Context, device *config.DeviceConfig, addr uint16, value uint16) error
 }
 

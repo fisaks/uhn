@@ -72,6 +72,9 @@ func (p *SerialBusPoller) handleCommand(ctx context.Context, c uhn.DeviceCommand
 			p.scheduler.SchedulePulse(pulseCmd, time.Duration(c.PulseMs)*time.Millisecond)
 		}
 
+	case "setanalogoutput":
+		p.client.WriteSingleAnalogOutput(ctx, c.Device, c.Address, c.Value)
+
 	default:
 		logging.Warn("Unknown command action", "action", c.Action)
 	}

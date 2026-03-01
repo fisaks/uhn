@@ -279,6 +279,13 @@ func (m *ModbusDeviceClient) ReadDeviceDigitalInput(ctx context.Context, device 
 	return m.readDeviceRange(ctx, device, spec.DigitalInputs, spec.Limits.MaxDigitalChunkSize, digitalCap, m.client.ReadDiscreteInputs)
 }
 
+func (m *ModbusDeviceClient) WriteSingleAnalogOutput(ctx context.Context, device *config.DeviceConfig, addr uint16, value uint16) error {
+	_, err := m.withClient(ctx, device, WRITE, func() ([]byte, error) {
+		return m.client.WriteSingleRegister(addr, value)
+	})
+	return err
+}
+
 func (m *ModbusDeviceClient) ReadDeviceAnalogOutput(ctx context.Context, device *config.DeviceConfig) ([]byte, error) {
 	spec := device.CatalogSpec
 	return m.readDeviceRange(ctx, device, spec.AnalogOutputs, spec.Limits.MaxAnalogChunkSize, analogCap, m.client.ReadHoldingRegisters)

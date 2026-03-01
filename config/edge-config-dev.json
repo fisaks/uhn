@@ -134,6 +134,46 @@
                 "settleBeforeRequestMs": 5,
                 "settleAfterWriteMs": 10
             }
+        },
+        "generic.temp_sensor": {
+            "vendor": "Generic",
+            "model": "Temperature Sensor",
+            "digitalOutputs": null,
+            "digitalInputs": null,
+            "analogOutputs": null,
+            "analogInputs": {
+                "start": 0,
+                "count": 4
+            },
+            "limits": {
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            }
+        },
+        "generic.dimmer": {
+            "vendor": "Generic",
+            "model": "Dimmer Module",
+            "digitalOutputs": null,
+            "digitalInputs": null,
+            "analogOutputs": {
+                "start": 0,
+                "count": 4
+            },
+            "analogInputs": null,
+            "limits": {
+                "maxDigitalChunkSize": 2000,
+                "maxAnalogChunkSize": 125
+            },
+            "timings": {
+                "timeoutMs": 150,
+                "settleBeforeRequestMs": 5,
+                "settleAfterWriteMs": 10
+            }
         }
     },
     "devices": {
@@ -189,6 +229,16 @@
                 "name": "energy_meter_1",
                 "unitId": 5,
                 "type": "shelly.pro3em"
+            },
+            {
+                "name": "sauna_temp_1",
+                "unitId": 6,
+                "type": "generic.temp_sensor"
+            },
+            {
+                "name": "bathroom_dimmer_1",
+                "unitId": 7,
+                "type": "generic.dimmer"
             }
         ]
     },
