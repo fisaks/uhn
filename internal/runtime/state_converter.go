@@ -1,6 +1,10 @@
 package runtime
 
 import (
+	"encoding/binary"
+	"math"
+	"strconv"
+
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/uhn"
 )
@@ -48,8 +52,9 @@ func ExtractResourceStates(
 	return out
 }
 
-// extractRegisters iterates over the register range, extracts 16-bit big-endian
-// values, and maps them to resource IDs via the resource map.
+// extractRegisters iterates over the register range, decodes values according
+// to the range's Type (uint16, int16, float32, uint32, int32), and maps them
+// to resource IDs via the resource map.
 func extractRegisters(
 	out []RuntimeResourceState,
 	data []byte,
@@ -61,11 +66,12 @@ func extractRegisters(
 ) []RuntimeResourceState {
 	start := int(regRange.Start)
 	count := int(regRange.Count)
+	width := regRange.RegisterWidth() // 1 or 2 registers per value
 
-	for i := 0; i < count; i++ {
+	for i := 0; i < count; i += width {
 		byteOffset := i * 2
 
-		if byteOffset+1 >= len(data) {
+		if byteOffset+width*2-1 >= len(data) {
 			break
 		}
 
@@ -75,7 +81,24 @@ func extractRegisters(
 			continue
 		}
 
-		value := int(data[byteOffset])<<8 | int(data[byteOffset+1]) // big-endian uint16
+		var value any
+		switch regRange.Type {
+		case "int16":
+			value = int(int16(binary.BigEndian.Uint16(data[byteOffset:])))
+		case "float32":
+			bits := binary.BigEndian.Uint32(data[byteOffset:])
+			f32 := math.Float32frombits(bits)
+			// Round-trip through shortest-representation string to trim
+			// float64 noise (e.g. 72.19999694824219 → 72.2).
+			rounded, _ := strconv.ParseFloat(strconv.FormatFloat(float64(f32), 'f', -1, 32), 64)
+			value = rounded
+		case "uint32":
+			value = int(binary.BigEndian.Uint32(data[byteOffset:]))
+		case "int32":
+			value = int(int32(binary.BigEndian.Uint32(data[byteOffset:])))
+		default: // "", "uint16"
+			value = int(binary.BigEndian.Uint16(data[byteOffset:]))
+		}
 
 		out = append(out, RuntimeResourceState{
 			ResourceID: resourceID,

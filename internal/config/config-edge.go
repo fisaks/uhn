@@ -61,6 +61,22 @@ type BusConfig struct {
 type Range struct {
 	Start uint16 `json:"start"`
 	Count uint16 `json:"count"`
+	Type  string `json:"type,omitempty"`
+}
+
+var validRegisterTypes = map[string]bool{
+	"": true, "uint16": true, "int16": true, "float32": true, "uint32": true, "int32": true,
+}
+
+// RegisterWidth returns the number of 16-bit registers consumed per value.
+// 2-register types: float32, uint32, int32. Everything else: 1.
+func (r *Range) RegisterWidth() int {
+	switch r.Type {
+	case "float32", "uint32", "int32":
+		return 2
+	default:
+		return 1
+	}
 }
 
 type CatalogLimits struct {
@@ -252,6 +268,25 @@ func (c *EdgeConfig) Validate() error {
 			}
 			if spec.AnalogInputs != nil && spec.AnalogInputs.Count == 0 {
 				errs.addf("catalog[%s].analogInputs.count must be > 0", key)
+			}
+
+			// Validate register type on analog ranges
+			for _, entry := range []struct {
+				label string
+				r     *Range
+			}{
+				{"analogOutputs", spec.AnalogOutputs},
+				{"analogInputs", spec.AnalogInputs},
+			} {
+				if entry.r == nil {
+					continue
+				}
+				if !validRegisterTypes[entry.r.Type] {
+					errs.addf("catalog[%s].%s.type: must be one of uint16, int16, float32, uint32, int32 (got %q)", key, entry.label, entry.r.Type)
+				}
+				if w := entry.r.RegisterWidth(); w > 1 && entry.r.Count%uint16(w) != 0 {
+					errs.addf("catalog[%s].%s.count: must be a multiple of %d for type %q (got %d)", key, entry.label, w, entry.r.Type, entry.r.Count)
+				}
 			}
 
 			if spec.Limits.MaxDigitalChunkSize <= 0 || spec.Limits.MaxDigitalChunkSize > 2000 {

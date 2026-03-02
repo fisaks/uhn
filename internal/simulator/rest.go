@@ -1,10 +1,14 @@
 package simulator
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/womat/mbserver"
@@ -102,6 +106,160 @@ func parseIndex(w http.ResponseWriter, s string) (int, bool) {
 		return 0, false
 	}
 	return i, true
+}
+
+/* ---- typed register helpers ---- */
+
+func regsToUint32(regs []uint16) uint32 {
+	var buf [4]byte
+	binary.BigEndian.PutUint16(buf[0:2], regs[0])
+	binary.BigEndian.PutUint16(buf[2:4], regs[1])
+	return binary.BigEndian.Uint32(buf[:])
+}
+
+func uint32ToRegs(regs []uint16, val uint32) {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], val)
+	regs[0] = binary.BigEndian.Uint16(buf[0:2])
+	regs[1] = binary.BigEndian.Uint16(buf[2:4])
+}
+
+func writeFloat32ToRegs(regs []uint16, val float32) {
+	uint32ToRegs(regs, math.Float32bits(val))
+}
+
+func readFloat32FromRegs(regs []uint16) float32 {
+	return math.Float32frombits(regsToUint32(regs))
+}
+
+// registerWidth returns 2 for two-register types, 1 otherwise.
+func registerWidth(typ string) int {
+	switch typ {
+	case "float32", "uint32", "int32":
+		return 2
+	default:
+		return 1
+	}
+}
+
+// readTypedRegs reads registers and returns a typed JSON value.
+func readTypedRegs(regs []uint16, idx int, typ string) any {
+	switch typ {
+	case "int16":
+		return int16(regs[idx])
+	case "float32":
+		return readFloat32FromRegs(regs[idx:])
+	case "uint32":
+		return regsToUint32(regs[idx:])
+	case "int32":
+		return int32(regsToUint32(regs[idx:]))
+	default: // "", "uint16"
+		return regs[idx]
+	}
+}
+
+// analogValue holds a parsed analog value with an explicit type.
+type analogValue struct {
+	intVal int64
+	fltVal float32
+	typ    string // "", "uint16", "int16", "float32", "uint32", "int32"
+}
+
+// width returns the register width for this value's type.
+func (v analogValue) width() int { return registerWidth(v.typ) }
+
+// writeToRegs writes the value into the register slice at position 0.
+func (v analogValue) writeToRegs(regs []uint16) {
+	switch v.typ {
+	case "float32":
+		writeFloat32ToRegs(regs, v.fltVal)
+	case "uint32":
+		uint32ToRegs(regs, uint32(v.intVal))
+	case "int32":
+		uint32ToRegs(regs, uint32(int32(v.intVal)))
+	case "int16":
+		regs[0] = uint16(int16(v.intVal))
+	default: // "", "uint16"
+		regs[0] = uint16(v.intVal)
+	}
+}
+
+// readAnalogPayload decodes {"value": N} or {"value": N, "type": "..."}.
+// When type is omitted, a decimal value implies float32 and an integer implies uint16
+// (backward compatible).
+func readAnalogPayload(r *http.Request) (analogValue, error) {
+	defer r.Body.Close()
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+
+	var payload struct {
+		Value json.Number `json:"value"`
+		Type  string      `json:"type"`
+	}
+	if err := dec.Decode(&payload); err != nil {
+		return analogValue{}, err
+	}
+
+	typ := payload.Type
+	s := payload.Value.String()
+
+	// No explicit type — auto-detect like before
+	if typ == "" {
+		if strings.Contains(s, ".") {
+			typ = "float32"
+		} else {
+			typ = "uint16"
+		}
+	}
+
+	switch typ {
+	case "float32":
+		f, err := payload.Value.Float64()
+		if err != nil {
+			return analogValue{}, err
+		}
+		return analogValue{fltVal: float32(f), typ: "float32"}, nil
+
+	case "int16":
+		i, err := payload.Value.Int64()
+		if err != nil {
+			return analogValue{}, err
+		}
+		if i < -32768 || i > 32767 {
+			return analogValue{}, fmt.Errorf("value %d out of int16 range", i)
+		}
+		return analogValue{intVal: i, typ: "int16"}, nil
+
+	case "int32":
+		i, err := payload.Value.Int64()
+		if err != nil {
+			return analogValue{}, err
+		}
+		if i < -2147483648 || i > 2147483647 {
+			return analogValue{}, fmt.Errorf("value %d out of int32 range", i)
+		}
+		return analogValue{intVal: i, typ: "int32"}, nil
+
+	case "uint32":
+		i, err := payload.Value.Int64()
+		if err != nil {
+			return analogValue{}, err
+		}
+		if i < 0 || i > 4294967295 {
+			return analogValue{}, fmt.Errorf("value %d out of uint32 range", i)
+		}
+		return analogValue{intVal: i, typ: "uint32"}, nil
+
+	default: // "uint16" or ""
+		i, err := payload.Value.Int64()
+		if err != nil {
+			return analogValue{}, err
+		}
+		if i < 0 || i > 65535 {
+			return analogValue{}, fmt.Errorf("value %d out of uint16 range", i)
+		}
+		return analogValue{intVal: i, typ: "uint16"}, nil
+	}
 }
 
 /* ---- device lookup ---- */
@@ -289,7 +447,13 @@ func (h *restHandler) getAnalogOutput(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "AnalogOutputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint16{"value": device.HoldingRegisters[int(cfg.AnalogOutputsStart)+idx]})
+	absIdx := int(cfg.AnalogOutputsStart) + idx
+	typ := r.URL.Query().Get("type")
+	if rw := registerWidth(typ); rw > 1 && idx+rw-1 >= int(cfg.AnalogOutputs) {
+		fail(w, http.StatusBadRequest, fmt.Sprintf("%s requires %d registers, index+%d out of range", typ, rw, rw-1))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": readTypedRegs(device.HoldingRegisters, absIdx, typ)})
 }
 
 func (h *restHandler) setAnalogOutput(w http.ResponseWriter, r *http.Request) {
@@ -308,14 +472,17 @@ func (h *restHandler) setAnalogOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload struct {
-		Value uint16 `json:"value"`
-	}
-	if err := readJSON(r, &payload); err != nil {
-		fail(w, http.StatusBadRequest, "invalid json")
+	val, err := readAnalogPayload(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
 	}
-	device.HoldingRegisters[int(cfg.AnalogOutputsStart)+idx] = payload.Value
+	absIdx := int(cfg.AnalogOutputsStart) + idx
+	if rw := val.width(); rw > 1 && idx+rw-1 >= int(cfg.AnalogOutputs) {
+		fail(w, http.StatusBadRequest, fmt.Sprintf("%s requires %d registers, index+%d out of range", val.typ, rw, rw-1))
+		return
+	}
+	val.writeToRegs(device.HoldingRegisters[absIdx:])
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -334,7 +501,13 @@ func (h *restHandler) getAnalogInput(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "AnalogInputs index out of range")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]uint16{"value": device.InputRegisters[int(cfg.AnalogInputsStart)+idx]})
+	absIdx := int(cfg.AnalogInputsStart) + idx
+	typ := r.URL.Query().Get("type")
+	if rw := registerWidth(typ); rw > 1 && idx+rw-1 >= int(cfg.AnalogInputs) {
+		fail(w, http.StatusBadRequest, fmt.Sprintf("%s requires %d registers, index+%d out of range", typ, rw, rw-1))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": readTypedRegs(device.InputRegisters, absIdx, typ)})
 }
 
 func (h *restHandler) setAnalogInput(w http.ResponseWriter, r *http.Request) {
@@ -353,14 +526,17 @@ func (h *restHandler) setAnalogInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload struct {
-		Value uint16 `json:"value"`
-	}
-	if err := readJSON(r, &payload); err != nil {
-		fail(w, http.StatusBadRequest, "invalid json")
+	val, err := readAnalogPayload(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
 	}
-	device.InputRegisters[int(cfg.AnalogInputsStart)+idx] = payload.Value
+	absIdx := int(cfg.AnalogInputsStart) + idx
+	if rw := val.width(); rw > 1 && idx+rw-1 >= int(cfg.AnalogInputs) {
+		fail(w, http.StatusBadRequest, fmt.Sprintf("%s requires %d registers, index+%d out of range", val.typ, rw, rw-1))
+		return
+	}
+	val.writeToRegs(device.InputRegisters[absIdx:])
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

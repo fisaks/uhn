@@ -181,14 +181,14 @@ curl -s http://localhost:8080/device/{busId}/{device}
 
 # Partial update (PATCH semantics)
 
-curl -s -X PATCH http://localhost:8080/device/{busId}/{device} 
-  -H 'Content-Type: application/json' 
+curl -s -X PATCH http://localhost:8080/device/{busId}/{device} \
+  -H 'Content-Type: application/json' \
   -d '{"digitalOutputs":[1,0,0,1],"analogOutputs":[123,456]}'
 
 # Get/set a single digital output
 
 curl -s http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}
-curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalOutput/{i} 
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalOutput/{i} \
   -H 'Content-Type: application/json' -d '{"value":1}'
 
 # Toggle a digital output
@@ -198,7 +198,7 @@ curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}/
 # Get/set/toggle/press a digital input
 
 curl -s http://localhost:8080/device/{busId}/{device}/digitalInput/{i}
-curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalInput/{i} 
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalInput/{i} \
   -H 'Content-Type: application/json' -d '{"value":1}'
 curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/toggle
 curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/press/tap
@@ -208,8 +208,52 @@ curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/p
 # Analog registers
 
 curl -s http://localhost:8080/device/{busId}/{device}/analogOutput/{i}
-curl -s -X PUT http://localhost:8080/device/{busId}/{device}/analogOutput/{i}
+curl -s -X PUT http://localhost:8080/device/{busId}/{device}/analogOutput/{i} \
   -H 'Content-Type: application/json' -d '{"value":65535}'
+```
+
+### Analog register types
+
+Analog GET/PUT endpoints support typed reads and writes for multi-register values.
+
+| Type | Registers | Range |
+|------|-----------|-------|
+| `uint16` (default) | 1 | 0 .. 65535 |
+| `int16` | 1 | -32768 .. 32767 |
+| `float32` | 2 | IEEE 754 single-precision |
+| `uint32` | 2 | 0 .. 4294967295 |
+| `int32` | 2 | -2147483648 .. 2147483647 |
+
+All multi-register values use big-endian byte order (high word first).
+
+**Reading** — pass `?type=` query parameter:
+
+```sh
+# uint16 (default)
+curl -s 'http://localhost:8080/device/{busId}/{device}/analogInput/{i}'
+
+# float32
+curl -s 'http://localhost:8080/device/{busId}/{device}/analogInput/{i}?type=float32'
+
+# int16 / uint32 / int32
+curl -s '...analogInput/{i}?type=int16'
+curl -s '...analogInput/{i}?type=uint32'
+curl -s '...analogInput/{i}?type=int32'
+```
+
+**Writing** — include an optional `"type"` field in the JSON body. When omitted, a decimal value is auto-detected as `float32`, an integer as `uint16`.
+
+```sh
+# Auto-detected uint16
+curl -s -X PUT .../analogInput/{i} -d '{"value": 1000}'
+
+# Auto-detected float32 (decimal point)
+curl -s -X PUT .../analogInput/{i} -d '{"value": 72.2}'
+
+# Explicit types
+curl -s -X PUT .../analogInput/{i} -d '{"value": -5, "type": "int16"}'
+curl -s -X PUT .../analogInput/{i} -d '{"value": 100000, "type": "uint32"}'
+curl -s -X PUT .../analogInput/{i} -d '{"value": -100000, "type": "int32"}'
 ```
 
 ## Navigating the tmux Environment
