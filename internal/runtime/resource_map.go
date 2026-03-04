@@ -20,7 +20,9 @@ func NewResourceMap(edgeName string, resources []RuntimeResource) *ResourceMap {
 
 	for i := range resources {
 		r := &resources[i]
-		if r.Edge != edgeName {
+		belongsToEdge := (r.Edge != "" && r.Edge == edgeName) ||
+			(r.Host != "" && r.Host == edgeName)
+		if !belongsToEdge {
 			continue
 		}
 		rm.byResourceID[r.ID] = r

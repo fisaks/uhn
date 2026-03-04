@@ -14,10 +14,11 @@ type RuntimeResourceState struct {
 type RuntimeResource struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
-	Edge   string `json:"edge"`
-	Device string `json:"device,omitempty"`
 	Type   string `json:"type"`
+	Edge   string `json:"edge,omitempty"`
+	Device string `json:"device,omitempty"`
 	Pin    *int   `json:"pin,omitempty"`
+	Host   string `json:"host,omitempty"`
 }
 
 // RuntimeAction is emitted by the rule engine when a rule fires.
