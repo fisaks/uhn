@@ -203,6 +203,11 @@
                 "name": "toilet_io8_1",
                 "unitId": 5,
                 "type": "waveshare.io8"
+            },
+            {
+                "name": "bathroom_io8_1",
+                "unitId": 6,
+                "type": "waveshare.io8"
             }
         ],
         "bus_tcp": [
