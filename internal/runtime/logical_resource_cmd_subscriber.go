@@ -43,19 +43,34 @@ func (s *LogicalResourceCmdSubscriber) OnMessage(ctx context.Context, topic stri
 
 	logging.Debug("LogicalResourceCmdSubscriber: received command", "resourceId", resourceID, "action", msg.Action)
 
-	// Forward to Node.js runtime via IPC (timerCommand IPC stays unchanged)
-	cmd := TimerCommand{
-		Kind: "event",
-		Cmd:  "timerCommand",
-		Payload: TimerCommandPayload{
-			ResourceID: msg.ResourceID,
-			Action:     msg.Action,
-			DurationMs: msg.DurationMs,
-			Mode:       msg.Mode,
-		},
-	}
-
-	if err := s.ipcBridge.writeJSON(cmd); err != nil {
-		logging.Error("LogicalResourceCmdSubscriber: failed to forward to runtime", "resourceId", resourceID, "error", err)
+	switch msg.Action {
+	case "tap":
+		cmd := TapCommand{
+			Kind: "event",
+			Cmd:  "tapCommand",
+			Payload: TapCommandPayload{
+				ResourceID: msg.ResourceID,
+				Timestamp:  msg.Timestamp,
+			},
+		}
+		if err := s.ipcBridge.writeJSON(cmd); err != nil {
+			logging.Error("LogicalResourceCmdSubscriber: failed to forward tap to runtime", "resourceId", resourceID, "error", err)
+		}
+	case "start", "clear":
+		cmd := TimerCommand{
+			Kind: "event",
+			Cmd:  "timerCommand",
+			Payload: TimerCommandPayload{
+				ResourceID: msg.ResourceID,
+				Action:     msg.Action,
+				DurationMs: msg.DurationMs,
+				Mode:       msg.Mode,
+			},
+		}
+		if err := s.ipcBridge.writeJSON(cmd); err != nil {
+			logging.Error("LogicalResourceCmdSubscriber: failed to forward to runtime", "resourceId", resourceID, "error", err)
+		}
+	default:
+		logging.Warn("LogicalResourceCmdSubscriber: unknown action", "resourceId", resourceID, "action", msg.Action)
 	}
 }

@@ -133,7 +133,7 @@ type LogicalResourceMQTTPayload struct {
 // on the logical-resource/cmd/+ topic.
 type LogicalResourceCommandMQTTPayload struct {
 	ResourceID string `json:"resourceId"`
-	Action     string `json:"action"` // "start" | "clear"
+	Action     string `json:"action"` // "start" | "clear" | "tap"
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
 	Timestamp  int64  `json:"timestamp"`
@@ -152,6 +152,21 @@ type TimerCommandPayload struct {
 	Action     string `json:"action"` // "start" | "clear"
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
+}
+
+// --- Tap IPC types ---
+
+// TapCommand is the IPC command sent to the runtime to emit a tap event for a complex resource.
+type TapCommand struct {
+	Kind    string            `json:"kind"` // "event"
+	Cmd     string            `json:"cmd"`  // "tapCommand"
+	Payload TapCommandPayload `json:"payload"`
+}
+
+// TapCommandPayload is the payload of a TapCommand.
+type TapCommandPayload struct {
+	ResourceID string `json:"resourceId"`
+	Timestamp  int64  `json:"timestamp"`
 }
 
 // --- Mute IPC types ---
