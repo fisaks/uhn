@@ -97,34 +97,41 @@ type RulesLoadedEvent struct {
 	} `json:"rules"`
 }
 
-// --- Timer IPC types ---
+// --- Logical resource state IPC types ---
 
-// TimerStateChangedEvent is emitted by the runtime when a timer changes state.
-type TimerStateChangedEvent struct {
-	Kind    string            `json:"kind"` // "event"
-	Cmd     string            `json:"cmd"`  // "timerStateChanged"
-	Payload TimerRuntimeState `json:"payload"`
+// LogicalResourceStateChangedEvent is emitted by the runtime when a logical resource changes state.
+type LogicalResourceStateChangedEvent struct {
+	Kind    string                              `json:"kind"` // "event"
+	Cmd     string                              `json:"cmd"`  // "logicalResourceStateChanged"
+	Payload LogicalResourceStateChangedPayload  `json:"payload"`
 }
 
-// TimerRuntimeState represents the state of a timer resource.
-type TimerRuntimeState struct {
-	ID        string `json:"id"`
-	Active    bool   `json:"active"`
-	StartedAt int64  `json:"startedAt"`
-	StopAt    int64  `json:"stopAt"`
+// LogicalResourceStateChangedPayload is the payload of a LogicalResourceStateChangedEvent.
+type LogicalResourceStateChangedPayload struct {
+	ResourceID string                       `json:"resourceId"`
+	Value      any                          `json:"value"`
+	Timestamp  int64                        `json:"timestamp"`
+	Details    *LogicalResourceStateDetails `json:"details,omitempty"`
 }
 
-// TimerMQTTPayload is the JSON payload for timer state MQTT messages.
-type TimerMQTTPayload struct {
-	ResourceID string `json:"resourceId"`
-	Active     bool   `json:"active"`
-	StartedAt  int64  `json:"startedAt"`
-	StopAt     int64  `json:"stopAt"`
-	Timestamp  int64  `json:"timestamp"`
+// LogicalResourceStateDetails carries type-specific metadata for logical resources.
+type LogicalResourceStateDetails struct {
+	Type      string `json:"type"`                // "timer"
+	StartedAt int64  `json:"startedAt,omitempty"`
+	StopAt    int64  `json:"stopAt,omitempty"`
 }
 
-// TimerCommandMQTTPayload is the JSON payload for timer command MQTT messages.
-type TimerCommandMQTTPayload struct {
+// LogicalResourceMQTTPayload is the JSON payload for logical resource state MQTT messages.
+type LogicalResourceMQTTPayload struct {
+	ResourceID string                       `json:"resourceId"`
+	Value      any                          `json:"value"`
+	Timestamp  int64                        `json:"timestamp"`
+	Details    *LogicalResourceStateDetails `json:"details,omitempty"`
+}
+
+// LogicalResourceCommandMQTTPayload is the JSON payload for logical resource command MQTT messages
+// on the logical-resource/cmd/+ topic.
+type LogicalResourceCommandMQTTPayload struct {
 	ResourceID string `json:"resourceId"`
 	Action     string `json:"action"` // "start" | "clear"
 	DurationMs int64  `json:"durationMs,omitempty"`

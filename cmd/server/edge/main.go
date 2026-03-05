@@ -97,20 +97,20 @@ func main() {
 		signalSub := runtime.NewSignalSubscriber(ipcBridge, signalTracker)
 		edgeBroker.Subscribe(ctx, "signal/state/+", messaging.AtLeastOnce, signalSub)
 
-		// Timer MQTT: publish timer state and receive timer commands from master
-		timerPublisher := runtime.NewTimerPublisher(edgeBroker, signalTracker)
-		ipcBridge.SetTimerPublisher(timerPublisher)
+		// Logical resource MQTT: publish state and receive commands from master
+		logicalResourceStatePublisher := runtime.NewLogicalResourceStatePublisher(edgeBroker, signalTracker)
+		ipcBridge.SetLogicalResourceStatePublisher(logicalResourceStatePublisher)
 
-		timerCmdSub := runtime.NewTimerCmdSubscriber(ipcBridge, signalTracker)
-		edgeBroker.Subscribe(ctx, "timer/cmd/+", messaging.AtLeastOnce, timerCmdSub)
+		logicalResourceCmdSub := runtime.NewLogicalResourceCmdSubscriber(ipcBridge, signalTracker)
+		edgeBroker.Subscribe(ctx, "logical-resource/cmd/+", messaging.AtLeastOnce, logicalResourceCmdSub)
 
 		muteCmdSub := runtime.NewMuteCmdSubscriber(ipcBridge)
 		edgeBroker.Subscribe(ctx, "mute/cmd", messaging.AtLeastOnce, muteCmdSub)
 
-		// Subscribe to timer/state/+ to capture retained timer state for restoration on restart
-		timerStateSub := runtime.NewTimerStateSubscriber(signalTracker, edgeBroker)
-		timerStateSub.Subscribe(ctx)
-		ipcBridge.SetTimerStateSubscriber(timerStateSub)
+		// Subscribe to logical-resource/state/+ to capture retained state for restoration on restart
+		logicalResourceStateSub := runtime.NewLogicalResourceStateSubscriber(signalTracker, edgeBroker)
+		logicalResourceStateSub.Subscribe(ctx)
+		ipcBridge.SetLogicalResourceStateSubscriber(logicalResourceStateSub)
 
 		// Wrap publisher so pollers feed state to both IPC bridge and MQTT
 		bridgedPublisher := runtime.NewBridgedPublisher(edgeBroker, ipcBridge)

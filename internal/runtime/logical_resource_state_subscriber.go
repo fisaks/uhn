@@ -10,36 +10,36 @@ import (
 	"github.com/fisaks/uhn/internal/messaging"
 )
 
-// TimerStateSubscriber subscribes to "timer/state/+" to capture retained timer
-// state messages from the MQTT broker. It operates in two phases:
+// LogicalResourceStateSubscriber subscribes to "logical-resource/state/+" to capture
+// retained logical resource state messages from the MQTT broker. It operates in two phases:
 //
 //   - Buffering phase (before DrainBuffered): accumulates retained messages so
 //     they can be replayed on runtime startup.
 //   - Flushed phase (after DrainBuffered): drops self-echoes via SignalTracker
 //     since the runtime is already running and the IPCBridge handles live updates.
-type TimerStateSubscriber struct {
+type LogicalResourceStateSubscriber struct {
 	signalTracker *SignalTracker
 	broker        messaging.Broker
 
 	mu           sync.Mutex
-	buffered     []TimerMQTTPayload
+	buffered     []LogicalResourceMQTTPayload
 	flushed      bool
 	subscription messaging.Subscription
 }
 
-// NewTimerStateSubscriber creates a new subscriber.
-func NewTimerStateSubscriber(signalTracker *SignalTracker, broker messaging.Broker) *TimerStateSubscriber {
-	return &TimerStateSubscriber{
+// NewLogicalResourceStateSubscriber creates a new subscriber.
+func NewLogicalResourceStateSubscriber(signalTracker *SignalTracker, broker messaging.Broker) *LogicalResourceStateSubscriber {
+	return &LogicalResourceStateSubscriber{
 		signalTracker: signalTracker,
 		broker:        broker,
 	}
 }
 
-// Subscribe subscribes to timer/state/+ on the broker.
-func (s *TimerStateSubscriber) Subscribe(ctx context.Context) {
-	sub, err := s.broker.Subscribe(ctx, "timer/state/+", messaging.AtLeastOnce, s)
+// Subscribe subscribes to logical-resource/state/+ on the broker.
+func (s *LogicalResourceStateSubscriber) Subscribe(ctx context.Context) {
+	sub, err := s.broker.Subscribe(ctx, "logical-resource/state/+", messaging.AtLeastOnce, s)
 	if err != nil {
-		logging.Error("TimerStateSubscriber: subscribe failed", "error", err)
+		logging.Error("LogicalResourceStateSubscriber: subscribe failed", "error", err)
 		return
 	}
 	s.mu.Lock()
@@ -47,11 +47,11 @@ func (s *TimerStateSubscriber) Subscribe(ctx context.Context) {
 	s.mu.Unlock()
 }
 
-// OnMessage handles an incoming MQTT message on "timer/state/{resourceId}".
-func (s *TimerStateSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
-	var msg TimerMQTTPayload
+// OnMessage handles an incoming MQTT message on "logical-resource/state/{resourceId}".
+func (s *LogicalResourceStateSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+	var msg LogicalResourceMQTTPayload
 	if err := json.Unmarshal(payload, &msg); err != nil {
-		logging.Warn("TimerStateSubscriber: invalid JSON", "topic", topic, "error", err)
+		logging.Warn("LogicalResourceStateSubscriber: invalid JSON", "topic", topic, "error", err)
 		return
 	}
 
@@ -67,25 +67,24 @@ func (s *TimerStateSubscriber) OnMessage(ctx context.Context, topic string, payl
 
 	if !s.flushed {
 		// Buffering phase: accumulate retained messages
-		logging.Debug("TimerStateSubscriber: buffered", "resourceId", resourceID, "active", msg.Active)
+		logging.Debug("LogicalResourceStateSubscriber: buffered", "resourceId", resourceID, "value", msg.Value)
 		s.buffered = append(s.buffered, msg)
 		return
 	}
 
 	// Flushed phase: drop self-echoes
 	if s.signalTracker.IsEcho(msg.ResourceID, msg.Timestamp) {
-		logging.Debug("TimerStateSubscriber: skipping self-echo", "resourceId", resourceID)
+		logging.Debug("LogicalResourceStateSubscriber: skipping self-echo", "resourceId", resourceID)
 		return
 	}
 
-	// After flush, any non-echo message is unexpected (master-originated timer state
-	// updates go through timer/cmd, not timer/state). Log for visibility.
-	logging.Debug("TimerStateSubscriber: ignoring post-flush message", "resourceId", resourceID)
+	// After flush, any non-echo message is unexpected. Log for visibility.
+	logging.Debug("LogicalResourceStateSubscriber: ignoring post-flush message", "resourceId", resourceID)
 }
 
 // DrainBuffered returns all buffered retained messages and marks the subscriber
 // as flushed. Subsequent messages will be checked for self-echo and dropped.
-func (s *TimerStateSubscriber) DrainBuffered() []TimerMQTTPayload {
+func (s *LogicalResourceStateSubscriber) DrainBuffered() []LogicalResourceMQTTPayload {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -97,7 +96,7 @@ func (s *TimerStateSubscriber) DrainBuffered() []TimerMQTTPayload {
 
 // Resubscribe unsubscribes, clears buffer state, and re-subscribes.
 // Used when the runtime restarts so retained messages are re-captured.
-func (s *TimerStateSubscriber) Resubscribe(ctx context.Context) {
+func (s *LogicalResourceStateSubscriber) Resubscribe(ctx context.Context) {
 	s.mu.Lock()
 	sub := s.subscription
 	s.subscription = nil
@@ -107,7 +106,7 @@ func (s *TimerStateSubscriber) Resubscribe(ctx context.Context) {
 
 	if sub != nil {
 		if err := sub.Unsubscribe(ctx); err != nil {
-			logging.Warn("TimerStateSubscriber: unsubscribe failed", "error", err)
+			logging.Warn("LogicalResourceStateSubscriber: unsubscribe failed", "error", err)
 		}
 	}
 

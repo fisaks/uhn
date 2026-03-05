@@ -41,9 +41,9 @@ type IPCBridge struct {
 	computedState map[string]any // C = S ?? P
 	stateMu       sync.RWMutex
 
-	actionHandler        ActionHandler
-	timerPublisher       *TimerPublisher
-	timerStateSubscriber *TimerStateSubscriber
+	actionHandler                    ActionHandler
+	logicalResourceStatePublisher    *LogicalResourceStatePublisher
+	logicalResourceStateSubscriber   *LogicalResourceStateSubscriber
 
 	broker messaging.Broker
 }
@@ -64,14 +64,14 @@ func (b *IPCBridge) SetActionHandler(handler ActionHandler) {
 	b.actionHandler = handler
 }
 
-// SetTimerPublisher sets the timer publisher for MQTT state publishing.
-func (b *IPCBridge) SetTimerPublisher(pub *TimerPublisher) {
-	b.timerPublisher = pub
+// SetLogicalResourceStatePublisher sets the logical resource state publisher for MQTT.
+func (b *IPCBridge) SetLogicalResourceStatePublisher(pub *LogicalResourceStatePublisher) {
+	b.logicalResourceStatePublisher = pub
 }
 
-// SetTimerStateSubscriber sets the subscriber used to restore timers on restart.
-func (b *IPCBridge) SetTimerStateSubscriber(sub *TimerStateSubscriber) {
-	b.timerStateSubscriber = sub
+// SetLogicalResourceStateSubscriber sets the subscriber used to restore logical resource state on restart.
+func (b *IPCBridge) SetLogicalResourceStateSubscriber(sub *LogicalResourceStateSubscriber) {
+	b.logicalResourceStateSubscriber = sub
 }
 
 // SetBroker sets the MQTT broker for publishing runtime rules.
@@ -132,9 +132,9 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 		case msg.Kind == "event" && msg.Cmd == "resourceMissing":
 			b.handleResourceMissing(line)
 
-		// Timer state changed event
-		case msg.Kind == "event" && msg.Cmd == "timerStateChanged":
-			b.handleTimerStateChanged(ctx, line)
+		// Logical resource state changed event
+		case msg.Kind == "event" && msg.Cmd == "logicalResourceStateChanged":
+			b.handleLogicalResourceStateChanged(ctx, line)
 
 		// Actions event
 		case msg.Kind == "event" && msg.Cmd == "actions":
@@ -169,14 +169,14 @@ func (b *IPCBridge) onReady(ctx context.Context) {
 	}
 }
 
-// prepareTimerRestoration drains buffered retained timer states, applies them to
+// prepareTimerRestoration drains buffered retained logical resource states, applies them to
 // computedState, and returns timerCommand messages to send after stateFullUpdate.
 func (b *IPCBridge) prepareTimerRestoration() []TimerCommand {
-	if b.timerStateSubscriber == nil {
+	if b.logicalResourceStateSubscriber == nil {
 		return nil
 	}
 
-	retained := b.timerStateSubscriber.DrainBuffered()
+	retained := b.logicalResourceStateSubscriber.DrainBuffered()
 	if len(retained) == 0 {
 		return nil
 	}
@@ -186,44 +186,45 @@ func (b *IPCBridge) prepareTimerRestoration() []TimerCommand {
 
 	b.stateMu.Lock()
 	for _, t := range retained {
-		if t.Active {
-			// Timer was active — set computed state to true
-			b.computedState[t.ResourceID] = true
+		// Set baseline computed value for all logical resources
+		b.computedState[t.ResourceID] = t.Value
 
-			remaining := t.StopAt - now
-			var durationMs int64
-			if remaining > 0 {
-				// Timer still has time left — resume for the remaining duration
-				durationMs = remaining
-				logging.Info("Timer restoration: resuming active timer",
-					"resourceId", t.ResourceID, "remainingMs", remaining)
+		// Timer-specific restoration: resume or fire expired timers
+		if t.Details != nil && t.Details.Type == "timer" {
+			active, ok := t.Value.(bool)
+			if ok && active {
+				remaining := t.Details.StopAt - now
+				var durationMs int64
+				if remaining > 0 {
+					durationMs = remaining
+					logging.Info("Timer restoration: resuming active timer",
+						"resourceId", t.ResourceID, "remainingMs", remaining)
+				} else {
+					durationMs = 1
+					logging.Info("Timer restoration: expired during downtime, firing immediately",
+						"resourceId", t.ResourceID, "expiredAgoMs", -remaining)
+				}
+
+				commands = append(commands, TimerCommand{
+					Kind: "event",
+					Cmd:  "timerCommand",
+					Payload: TimerCommandPayload{
+						ResourceID: t.ResourceID,
+						Action:     "start",
+						DurationMs: durationMs,
+						Mode:       "restart",
+					},
+				})
 			} else {
-				// Timer expired during downtime — fire with 1ms to create the
-				// true→false transition so "deactivated" events trigger
-				durationMs = 1
-				logging.Info("Timer restoration: expired during downtime, firing immediately",
-					"resourceId", t.ResourceID, "expiredAgoMs", -remaining)
+				logging.Debug("Timer restoration: inactive timer", "resourceId", t.ResourceID)
 			}
-
-			commands = append(commands, TimerCommand{
-				Kind: "event",
-				Cmd:  "timerCommand",
-				Payload: TimerCommandPayload{
-					ResourceID: t.ResourceID,
-					Action:     "start",
-					DurationMs: durationMs,
-					Mode:       "restart",
-				},
-			})
 		} else {
-			// Timer was inactive — include in baseline state
-			b.computedState[t.ResourceID] = false
-			logging.Debug("Timer restoration: inactive timer", "resourceId", t.ResourceID)
+			logging.Debug("Logical resource state restoration: baseline value set", "resourceId", t.ResourceID, "value", t.Value)
 		}
 	}
 	b.stateMu.Unlock()
 
-	logging.Info("Timer restoration complete", "retained", len(retained), "commands", len(commands))
+	logging.Info("Logical resource state restoration complete", "retained", len(retained), "commands", len(commands))
 	return commands
 }
 
@@ -388,40 +389,34 @@ func (b *IPCBridge) handleResourceMissing(raw []byte) {
 	)
 }
 
-// handleTimerStateChanged publishes timer state to MQTT and updates local computed state.
-func (b *IPCBridge) handleTimerStateChanged(ctx context.Context, raw []byte) {
-	var event TimerStateChangedEvent
+// handleLogicalResourceStateChanged publishes logical resource state to MQTT and updates local computed state.
+func (b *IPCBridge) handleLogicalResourceStateChanged(ctx context.Context, raw []byte) {
+	var event LogicalResourceStateChangedEvent
 	if err := json.Unmarshal(raw, &event); err != nil {
-		logging.Error("Failed to parse timerStateChanged event", "error", err)
+		logging.Error("Failed to parse logicalResourceStateChanged event", "error", err)
 		return
 	}
 
 	state := event.Payload
 	timestamp := time.Now().UnixMilli()
 
-	// Update local computed state so the runtime sees timer state
-	var value any
-	if state.Active {
-		value = true
-	} else {
-		value = false
-	}
+	// Update local computed state so the runtime sees logical resource state
 	b.stateMu.Lock()
-	prevComputed := b.computedState[state.ID]
-	b.computedState[state.ID] = value
+	prevComputed := b.computedState[state.ResourceID]
+	b.computedState[state.ResourceID] = state.Value
 	b.stateMu.Unlock()
 
-	if value != prevComputed {
+	if state.Value != prevComputed {
 		b.sendStateUpdate(RuntimeResourceState{
-			ResourceID: state.ID,
-			Value:      value,
+			ResourceID: state.ResourceID,
+			Value:      state.Value,
 			Timestamp:  timestamp,
 		})
 	}
 
 	// Publish to MQTT
-	if b.timerPublisher != nil {
-		b.timerPublisher.Publish(ctx, state, timestamp)
+	if b.logicalResourceStatePublisher != nil {
+		b.logicalResourceStatePublisher.Publish(ctx, state, timestamp)
 	}
 }
 
@@ -537,9 +532,9 @@ func (b *IPCBridge) Reset(ctx context.Context) {
 	// Clear retained runtime rules from MQTT
 	b.clearRuntimeRules(ctx)
 
-	// Re-subscribe to timer/state/+ so retained messages are re-captured
+	// Re-subscribe to logical-resource/state/+ so retained messages are re-captured
 	// for the next runtime startup
-	if b.timerStateSubscriber != nil {
-		b.timerStateSubscriber.Resubscribe(ctx)
+	if b.logicalResourceStateSubscriber != nil {
+		b.logicalResourceStateSubscriber.Resubscribe(ctx)
 	}
 }
