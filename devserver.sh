@@ -56,26 +56,29 @@ start_dev_env() {
     SOCAT_PID=$!
     sleep 1
     PORTS=$(grep -o '/dev/pts/[0-9]\+' "$SOCAT_LOG")
-    export EDGE_PORT=$(echo "$PORTS" | sed -n 1p)
-    export SIM_PORT=$(echo "$PORTS" | sed -n 2p)
+    EDGE_PORT=$(echo "$PORTS" | sed -n 1p)
+    SIM_PORT=$(echo "$PORTS" | sed -n 2p)
     
-    # Write temporary config file with correct port
-    export UHN_EDGE_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/edge-config-dev.json"
-    export SIM_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/sim-config-dev.json"
-    export UHN_WORKSPACE_PATH="/home/freddi/Projects/go-uhn/tmp/uhn-workspace"
-    export UHN_NODE_PATH="/home/freddi/.nvm/versions/node/v22.11.0"
-    export UHN_RUNTIME_PATH="/home/freddi/Projects/uxp" 
-    export TZ="Europe/Helsinki"
+    # Write temporary config file with correct port.
+    # NOT exported — these are passed explicitly to the tmux session via -e flags.
+    # Exporting would pollute the tmux server's global environment and leak into
+    # other tmux sessions (e.g. the UXP devserver).
+    UHN_EDGE_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/edge-config-dev.json"
+    SIM_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/sim-config-dev.json"
+    UHN_WORKSPACE_PATH="/home/freddi/Projects/go-uhn/tmp/uhn-workspace"
+    UHN_NODE_PATH="/home/freddi/.nvm/versions/node/v22.11.0"
+    UHN_RUNTIME_PATH="/home/freddi/Projects/uxp"
+    TZ="Europe/Helsinki"
     
     mkdir -p $UHN_WORKSPACE_PATH
     rm -f "$UHN_EDGE_CONFIG_PATH" "$SIM_CONFIG_PATH"
     jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$UHN_EDGE_CONFIG_PATH"
     jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_PATH"
     
-    export UHN_MQTT_URL=tcp://localhost:1883
-    export UHN_EDGE_NAME=edge1
-    export UHN_LOG_LEVEL=debug
-    export UHN_PUBLIC_HOST=$(hostname -I | awk '{print $1}')
+    UHN_MQTT_URL=tcp://localhost:1883
+    UHN_EDGE_NAME=edge1
+    UHN_LOG_LEVEL=debug
+    UHN_PUBLIC_HOST=$(hostname -I | awk '{print $1}')
     
     echo "🧩 Edge connected to: $EDGE_PORT"
     echo "🧩 Simulator listening on: $SIM_PORT"

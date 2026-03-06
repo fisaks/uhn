@@ -133,7 +133,8 @@ type LogicalResourceMQTTPayload struct {
 // on the logical-resource/cmd/+ topic.
 type LogicalResourceCommandMQTTPayload struct {
 	ResourceID string `json:"resourceId"`
-	Action     string `json:"action"` // "start" | "clear" | "tap"
+	Action     string `json:"action"` // "start" | "clear" | "tap" | "setState"
+	Value      any    `json:"value,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
 	Timestamp  int64  `json:"timestamp"`

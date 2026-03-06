@@ -70,6 +70,8 @@ func (s *LogicalResourceCmdSubscriber) OnMessage(ctx context.Context, topic stri
 		if err := s.ipcBridge.writeJSON(cmd); err != nil {
 			logging.Error("LogicalResourceCmdSubscriber: failed to forward to runtime", "resourceId", resourceID, "error", err)
 		}
+	case "setState":
+		s.ipcBridge.HandleSetState(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
 	default:
 		logging.Warn("LogicalResourceCmdSubscriber: unknown action", "resourceId", resourceID, "action", msg.Action)
 	}

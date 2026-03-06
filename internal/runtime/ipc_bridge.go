@@ -420,6 +420,42 @@ func (b *IPCBridge) handleLogicalResourceStateChanged(ctx context.Context, raw [
 	}
 }
 
+// HandleSetState processes an incoming setState command for virtualInput resources.
+// It forwards the value to the runtime as a stateUpdate, updates the local computed
+// state, and publishes to MQTT so the master picks it up and broadcasts to the UI.
+//
+// This is only used for virtualInput resources — other resource types manage state
+// through their own dedicated paths (physical polling, timer events, etc.).
+// The master validates the resource type before sending setState commands.
+func (b *IPCBridge) HandleSetState(ctx context.Context, resourceID string, value any, timestamp int64) {
+	// Forward to runtime
+	cmd := StateUpdateCommand{
+		Kind: "event",
+		Cmd:  "stateUpdate",
+		Payload: RuntimeResourceState{
+			ResourceID: resourceID,
+			Value:      value,
+			Timestamp:  timestamp,
+		},
+	}
+	if err := b.writeJSON(cmd); err != nil {
+		logging.Error("HandleSetState: failed to forward stateUpdate to runtime", "resourceId", resourceID, "error", err)
+	}
+
+	// Update local computed state
+	b.stateMu.Lock()
+	b.computedState[resourceID] = value
+	b.stateMu.Unlock()
+
+	// Publish to MQTT so master receives the state
+	if b.logicalResourceStatePublisher != nil {
+		b.logicalResourceStatePublisher.Publish(ctx, LogicalResourceStateChangedPayload{
+			ResourceID: resourceID,
+			Value:      value,
+		}, timestamp)
+	}
+}
+
 // handleActions processes an actions event from the runtime.
 func (b *IPCBridge) handleActions(ctx context.Context, raw []byte) {
 	var event ActionsEvent
