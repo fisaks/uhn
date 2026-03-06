@@ -25,6 +25,7 @@ tmp/
 *.local.json
 *.env
 .env.*
+uhn-monitor
 
 # OS
 .DS_Store
