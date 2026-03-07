@@ -420,11 +420,11 @@ func (b *IPCBridge) handleLogicalResourceStateChanged(ctx context.Context, raw [
 	}
 }
 
-// HandleSetState processes an incoming setState command for virtualInput resources.
+// HandleSetState processes an incoming setState command for virtualDigitalInput resources.
 // It forwards the value to the runtime as a stateUpdate, updates the local computed
 // state, and publishes to MQTT so the master picks it up and broadcasts to the UI.
 //
-// This is only used for virtualInput resources — other resource types manage state
+// This is only used for virtualDigitalInput resources — other resource types manage state
 // through their own dedicated paths (physical polling, timer events, etc.).
 // The master validates the resource type before sending setState commands.
 func (b *IPCBridge) HandleSetState(ctx context.Context, resourceID string, value any, timestamp int64) {
