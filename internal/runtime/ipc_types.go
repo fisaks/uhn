@@ -130,10 +130,10 @@ type LogicalResourceMQTTPayload struct {
 }
 
 // LogicalResourceCommandMQTTPayload is the JSON payload for logical resource command MQTT messages
-// on the logical-resource/cmd/+ topic.
+// on the resource/cmd/+ topic.
 type LogicalResourceCommandMQTTPayload struct {
 	ResourceID string `json:"resourceId"`
-	Action     string `json:"action"` // "start" | "clear" | "tap" | "setState"
+	Action     string `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState"
 	Value      any    `json:"value,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
@@ -168,6 +168,22 @@ type TapCommand struct {
 type TapCommandPayload struct {
 	ResourceID string `json:"resourceId"`
 	Timestamp  int64  `json:"timestamp"`
+}
+
+// --- LongPress IPC types ---
+
+// LongPressCommand is the IPC command sent to the runtime to emit a longPress event.
+type LongPressCommand struct {
+	Kind    string                `json:"kind"` // "event"
+	Cmd     string                `json:"cmd"`  // "longPressCommand"
+	Payload LongPressCommandPayload `json:"payload"`
+}
+
+// LongPressCommandPayload is the payload of a LongPressCommand.
+type LongPressCommandPayload struct {
+	ResourceID  string `json:"resourceId"`
+	Timestamp   int64  `json:"timestamp"`
+	ThresholdMs int64  `json:"thresholdMs"`
 }
 
 // --- Mute IPC types ---

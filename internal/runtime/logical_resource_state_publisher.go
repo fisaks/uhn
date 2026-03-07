@@ -9,7 +9,7 @@ import (
 )
 
 // LogicalResourceStatePublisher publishes logical resource state to MQTT.
-// Topic: logical-resource/state/{resourceId} (broker auto-prefixes with uhn/{edge}/).
+// Topic: resource/state/{resourceId} (broker auto-prefixes with uhn/{edge}/).
 type LogicalResourceStatePublisher struct {
 	broker  messaging.Broker
 	tracker *SignalTracker
@@ -25,7 +25,7 @@ func NewLogicalResourceStatePublisher(broker messaging.Broker, tracker *SignalTr
 
 // Publish publishes logical resource state to MQTT.
 func (p *LogicalResourceStatePublisher) Publish(ctx context.Context, state LogicalResourceStateChangedPayload, timestamp int64) {
-	topic := "logical-resource/state/" + state.ResourceID
+	topic := "resource/state/" + state.ResourceID
 	payload := LogicalResourceMQTTPayload{
 		ResourceID: state.ResourceID,
 		Value:      state.Value,

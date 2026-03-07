@@ -102,12 +102,12 @@ func main() {
 		ipcBridge.SetLogicalResourceStatePublisher(logicalResourceStatePublisher)
 
 		logicalResourceCmdSub := runtime.NewLogicalResourceCmdSubscriber(ipcBridge, signalTracker)
-		edgeBroker.Subscribe(ctx, "logical-resource/cmd/+", messaging.AtLeastOnce, logicalResourceCmdSub)
+		edgeBroker.Subscribe(ctx, "resource/cmd/+", messaging.AtLeastOnce, logicalResourceCmdSub)
 
 		muteCmdSub := runtime.NewMuteCmdSubscriber(ipcBridge)
 		edgeBroker.Subscribe(ctx, "mute/cmd", messaging.AtLeastOnce, muteCmdSub)
 
-		// Subscribe to logical-resource/state/+ to capture retained state for restoration on restart
+		// Subscribe to resource/state/+ to capture retained state for restoration on restart
 		logicalResourceStateSub := runtime.NewLogicalResourceStateSubscriber(signalTracker, edgeBroker)
 		logicalResourceStateSub.Subscribe(ctx)
 		ipcBridge.SetLogicalResourceStateSubscriber(logicalResourceStateSub)

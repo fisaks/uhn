@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"log"
 	"os"
-	"time"
 
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
@@ -46,7 +44,7 @@ func main() {
 	}
 
 	// Start profile ticker for virtual devices (e.g., Shelly Pro 3EM)
-	simStore.StartProfileTicker(context.Background(), 10*time.Second)
+	//simStore.StartProfileTicker(context.Background(), 10*time.Second)
 
 	// Single REST API serving all buses
 	if err := simulator.StartRestAPI(simStore, restAddr, tcpCtrl); err != nil {

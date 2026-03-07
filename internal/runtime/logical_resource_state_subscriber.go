@@ -10,7 +10,7 @@ import (
 	"github.com/fisaks/uhn/internal/messaging"
 )
 
-// LogicalResourceStateSubscriber subscribes to "logical-resource/state/+" to capture
+// LogicalResourceStateSubscriber subscribes to "resource/state/+" to capture
 // retained logical resource state messages from the MQTT broker. It operates in two phases:
 //
 //   - Buffering phase (before DrainBuffered): accumulates retained messages so
@@ -35,9 +35,9 @@ func NewLogicalResourceStateSubscriber(signalTracker *SignalTracker, broker mess
 	}
 }
 
-// Subscribe subscribes to logical-resource/state/+ on the broker.
+// Subscribe subscribes to resource/state/+ on the broker.
 func (s *LogicalResourceStateSubscriber) Subscribe(ctx context.Context) {
-	sub, err := s.broker.Subscribe(ctx, "logical-resource/state/+", messaging.AtLeastOnce, s)
+	sub, err := s.broker.Subscribe(ctx, "resource/state/+", messaging.AtLeastOnce, s)
 	if err != nil {
 		logging.Error("LogicalResourceStateSubscriber: subscribe failed", "error", err)
 		return

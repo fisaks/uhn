@@ -9,7 +9,7 @@ import (
 )
 
 // LogicalResourceCmdSubscriber implements messaging.Subscriber to handle incoming
-// logical resource command MQTT messages on the topic "logical-resource/cmd/+".
+// logical resource command MQTT messages on the topic "resource/cmd/+".
 // It receives commands from master and forwards them to the Node.js runtime via IPC.
 type LogicalResourceCmdSubscriber struct {
 	ipcBridge     *IPCBridge
@@ -24,10 +24,10 @@ func NewLogicalResourceCmdSubscriber(ipcBridge *IPCBridge, signalTracker *Signal
 	}
 }
 
-// OnMessage handles an incoming MQTT message on "logical-resource/cmd/{resourceId}".
-// Topic format after prefix stripping: "uhn/{edge}/logical-resource/cmd/{resourceId}"
+// OnMessage handles an incoming MQTT message on "resource/cmd/{resourceId}".
+// Topic format after prefix stripping: "uhn/{edge}/resource/cmd/{resourceId}"
 func (s *LogicalResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
-	// Topic format: "uhn/{edge}/logical-resource/cmd/{resourceId}"
+	// Topic format: "uhn/{edge}/resource/cmd/{resourceId}"
 	parts := strings.Split(topic, "/")
 	if len(parts) != 5 {
 		logging.Warn("LogicalResourceCmdSubscriber: malformed topic", "topic", topic)
@@ -55,6 +55,19 @@ func (s *LogicalResourceCmdSubscriber) OnMessage(ctx context.Context, topic stri
 		}
 		if err := s.ipcBridge.writeJSON(cmd); err != nil {
 			logging.Error("LogicalResourceCmdSubscriber: failed to forward tap to runtime", "resourceId", resourceID, "error", err)
+		}
+	case "longPress":
+		cmd := LongPressCommand{
+			Kind: "event",
+			Cmd:  "longPressCommand",
+			Payload: LongPressCommandPayload{
+				ResourceID:  msg.ResourceID,
+				Timestamp:   msg.Timestamp,
+				ThresholdMs: msg.DurationMs,
+			},
+		}
+		if err := s.ipcBridge.writeJSON(cmd); err != nil {
+			logging.Error("LogicalResourceCmdSubscriber: failed to forward longPress to runtime", "resourceId", resourceID, "error", err)
 		}
 	case "start", "clear":
 		cmd := TimerCommand{
