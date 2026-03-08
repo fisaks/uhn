@@ -152,7 +152,7 @@ func (h *EdgeActionHandler) handleEmitSignal(ctx context.Context, action Runtime
 	h.ipcBridge.HandleSignalUpdate(action.ResourceID, action.Value, timestamp)
 
 	// Publish to MQTT so master receives the signal
-	topic := "signal/state/" + action.ResourceID
+	topic := "resource/signal/" + action.ResourceID
 	payload := SignalMQTTPayload{
 		ResourceID: action.ResourceID,
 		Value:      action.Value,

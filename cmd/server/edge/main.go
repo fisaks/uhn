@@ -93,16 +93,16 @@ func main() {
 		edgeBroker.SubscribeMaster(ctx, "identity", messaging.AtLeastOnce, bpDownloader.IdentitySubscriber())
 		edgeBroker.SubscribeMaster(ctx, "blueprint/activated", messaging.AtLeastOnce, bpDownloader.BlueprintSubscriber())
 
-		// Subscribe to signal/state/+ for incoming signals from master
-		signalSub := runtime.NewSignalSubscriber(ipcBridge, signalTracker)
-		edgeBroker.Subscribe(ctx, "signal/state/+", messaging.AtLeastOnce, signalSub)
+		// Subscribe to resource/signal/+ for incoming signals from master
+		resourceSignalSub := runtime.NewResourceSignalSubscriber(ipcBridge, signalTracker)
+		edgeBroker.Subscribe(ctx, "resource/signal/+", messaging.AtLeastOnce, resourceSignalSub)
 
 		// Logical resource MQTT: publish state and receive commands from master
 		logicalResourceStatePublisher := runtime.NewLogicalResourceStatePublisher(edgeBroker, signalTracker)
 		ipcBridge.SetLogicalResourceStatePublisher(logicalResourceStatePublisher)
 
-		logicalResourceCmdSub := runtime.NewLogicalResourceCmdSubscriber(ipcBridge, signalTracker)
-		edgeBroker.Subscribe(ctx, "resource/cmd/+", messaging.AtLeastOnce, logicalResourceCmdSub)
+		resourceCmdSub := runtime.NewResourceCmdSubscriber(ipcBridge, signalTracker)
+		edgeBroker.Subscribe(ctx, "resource/cmd/+", messaging.AtLeastOnce, resourceCmdSub)
 
 		muteCmdSub := runtime.NewMuteCmdSubscriber(ipcBridge)
 		edgeBroker.Subscribe(ctx, "mute/cmd", messaging.AtLeastOnce, muteCmdSub)
