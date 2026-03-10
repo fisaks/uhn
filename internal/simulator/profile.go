@@ -3,6 +3,7 @@ package simulator
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/womat/mbserver"
@@ -24,32 +25,82 @@ func (s *SimStore) RegisterProfile(deviceName string, profile DeviceProfile) {
 	s.profiles[deviceName] = profile
 }
 
-// StartProfileTicker starts a goroutine that calls Tick() on all registered
-// profiles every interval. Stops when ctx is cancelled.
-func (s *SimStore) StartProfileTicker(ctx context.Context, interval time.Duration) {
+// ProfileTickerControl manages the profile ticker goroutine.
+// Starts disabled; use Enable/Disable via REST or test code.
+type ProfileTickerControl struct {
+	simStore *SimStore
+	interval time.Duration
+	mu       sync.Mutex
+	enabled  bool
+	cancel   context.CancelFunc
+}
+
+// NewProfileTicker creates a ticker control (starts disabled).
+func NewProfileTicker(simStore *SimStore, interval time.Duration) *ProfileTickerControl {
+	return &ProfileTickerControl{
+		simStore: simStore,
+		interval: interval,
+	}
+}
+
+// Enable starts the ticker goroutine. No-op if already enabled.
+func (c *ProfileTickerControl) Enable() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.enabled {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	c.enabled = true
+
 	go func() {
-		ticker := time.NewTicker(interval)
+		ticker := time.NewTicker(c.interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				for deviceName, profile := range s.profiles {
-					deviceCfg := s.GetDeviceConfig(deviceName)
-					if deviceCfg == nil {
-						continue
-					}
-					srv := s.GetServer(deviceCfg.BusId)
-					if srv == nil {
-						continue
-					}
-					if dev, ok := srv.Devices[deviceCfg.UnitID]; ok {
-						profile.Tick(&dev)
-					}
-				}
+				c.tickAll()
 			}
 		}
 	}()
-	log.Printf("Profile ticker started (interval=%s)", interval)
+	log.Printf("Profile ticker enabled (interval=%s)", c.interval)
+}
+
+// Disable stops the ticker goroutine. No-op if already disabled.
+func (c *ProfileTickerControl) Disable() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled {
+		return
+	}
+	c.cancel()
+	c.cancel = nil
+	c.enabled = false
+	log.Printf("Profile ticker disabled")
+}
+
+// IsEnabled returns whether the ticker is currently running.
+func (c *ProfileTickerControl) IsEnabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.enabled
+}
+
+func (c *ProfileTickerControl) tickAll() {
+	for deviceName, profile := range c.simStore.profiles {
+		deviceCfg := c.simStore.GetDeviceConfig(deviceName)
+		if deviceCfg == nil {
+			continue
+		}
+		srv := c.simStore.GetServer(deviceCfg.BusId)
+		if srv == nil {
+			continue
+		}
+		if dev, ok := srv.Devices[deviceCfg.UnitID]; ok {
+			profile.Tick(&dev)
+		}
+	}
 }

@@ -155,6 +155,19 @@ class SimClient:
         resp = self._request("POST", "/admin/start")
         return resp.json()
 
+    # Profile ticker control
+    def ticker_enable(self) -> Dict[str, Any]:
+        resp = self._request("POST", "/admin/ticker/enable")
+        return resp.json()
+
+    def ticker_disable(self) -> Dict[str, Any]:
+        resp = self._request("POST", "/admin/ticker/disable")
+        return resp.json()
+
+    def ticker_status(self) -> Dict[str, Any]:
+        resp = self._request("GET", "/admin/ticker/status")
+        return resp.json()
+
     # Convenience wait helper: poll until the digital output matches expected or timeout
     def wait_for_digital_output(
         self,

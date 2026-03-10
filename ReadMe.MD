@@ -256,6 +256,21 @@ curl -s -X PUT .../analogInput/{i} -d '{"value": 100000, "type": "uint32"}'
 curl -s -X PUT .../analogInput/{i} -d '{"value": -100000, "type": "int32"}'
 ```
 
+### Profile ticker
+
+Device profiles simulate periodic register changes (e.g. Shelly Pro 3EM energy readings). The ticker starts **disabled** and can be controlled via REST:
+
+```sh
+# Enable the profile ticker
+curl -s -X POST http://localhost:8080/admin/ticker/enable
+
+# Check ticker status
+curl -s http://localhost:8080/admin/ticker/status
+
+# Disable the profile ticker
+curl -s -X POST http://localhost:8080/admin/ticker/disable
+```
+
 ## Navigating the tmux Environment
 
 - **Detach the tmux Session:** Press `Ctrl+b` and then `d` to detach the session while leaving the processes running.

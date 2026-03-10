@@ -30,7 +30,7 @@ type restHandler struct {
 
 // StartRestAPI starts the simulator REST API on the given address.
 // If tcpCtrl is non-nil, admin stop/start endpoints are registered.
-func StartRestAPI(simStore *SimStore, addr string, tcpCtrl *TCPListenerControl) error {
+func StartRestAPI(simStore *SimStore, addr string, tcpCtrl *TCPListenerControl, tickerCtrl *ProfileTickerControl) error {
 	mux := http.NewServeMux()
 	h := &restHandler{simStore: simStore}
 
@@ -51,6 +51,22 @@ func StartRestAPI(simStore *SimStore, addr string, tcpCtrl *TCPListenerControl) 
 		mux.HandleFunc("GET /admin/status", func(w http.ResponseWriter, r *http.Request) {
 			running := ctrl.IsRunning()
 			writeJSON(w, http.StatusOK, map[string]any{"running": running})
+		})
+	}
+
+	// Profile ticker endpoints
+	if tickerCtrl != nil {
+		tc := tickerCtrl
+		mux.HandleFunc("POST /admin/ticker/enable", func(w http.ResponseWriter, r *http.Request) {
+			tc.Enable()
+			writeJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+		})
+		mux.HandleFunc("POST /admin/ticker/disable", func(w http.ResponseWriter, r *http.Request) {
+			tc.Disable()
+			writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+		})
+		mux.HandleFunc("GET /admin/ticker/status", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{"enabled": tc.IsEnabled()})
 		})
 	}
 

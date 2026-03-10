@@ -5,8 +5,17 @@ energy meter readings matching the real Shelly Pro 3EM register layout.
 
 Register spec: https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/EM/
 """
+import pytest
 import time
 from common.shelly_decoder import decode_float32_be, decode_all_phases
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _enable_ticker(sim_client):
+    """Enable the profile ticker for the duration of this test module."""
+    sim_client.ticker_enable()
+    yield
+    sim_client.ticker_disable()
 
 
 def _get_regs(sim_client, energy_meter) -> list[int]:
