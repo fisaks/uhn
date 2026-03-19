@@ -132,12 +132,13 @@ type LogicalResourceMQTTPayload struct {
 // LogicalResourceCommandMQTTPayload is the JSON payload for logical resource command MQTT messages
 // on the resource/cmd/+ topic.
 type LogicalResourceCommandMQTTPayload struct {
-	ResourceID string `json:"resourceId"`
-	Action     string `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState"
-	Value      any    `json:"value,omitempty"`
-	DurationMs int64  `json:"durationMs,omitempty"`
-	Mode       string `json:"mode,omitempty"` // "restart" | "startOnce"
-	Timestamp  int64  `json:"timestamp"`
+	ResourceID   string `json:"resourceId"`
+	Action       string `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState"
+	Value        any    `json:"value,omitempty"`
+	DurationMs   int64  `json:"durationMs,omitempty"`
+	Mode         string `json:"mode,omitempty"` // "restart" | "startOnce"
+	SimulateHold bool   `json:"simulateHold,omitempty"`
+	Timestamp    int64  `json:"timestamp"`
 }
 
 // TimerCommand is the IPC command sent to the runtime to control a timer.

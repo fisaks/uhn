@@ -114,24 +114,27 @@ func (s *ResourceCmdSubscriber) handleTap(ctx context.Context, resourceID string
 	}
 }
 
-// handleLongPress processes a longPress command with unified event generation.
+// handleLongPress processes a longPress command.
+// When simulateHold is false (default), forwards longPressCommand directly to the
+// runtime for instant rule execution. When true, simulates a physical hold so
+// InputGestureEmitter detects the longPress from the state cycle.
 func (s *ResourceCmdSubscriber) handleLongPress(ctx context.Context, resourceID string, msg LogicalResourceCommandMQTTPayload) {
 	rm := s.ipcBridge.getResourceMap()
 	resource := s.lookupResource(rm, resourceID)
 
-	if resource != nil && resource.Type == "digitalInput" {
-		// digitalInput: hold state for thresholdMs+buffer → InputGestureEmitter
+	if resource != nil && resource.Type == "digitalInput" && msg.SimulateHold {
+		// simulateHold: hold state for thresholdMs+buffer → InputGestureEmitter
 		// detects longPress from the held state, then deactivated on release.
 		holdMs := msg.DurationMs + longPressBufferMs
 		if driver, bypassSignal := s.getOwningDriver(resource); bypassSignal {
-			// IHC: hold driver signal
+			// bypassSignalState driver (IHC): hold driver signal on physical device
 			s.holdDriverSignal(ctx, resourceID, resource, driver, holdMs)
 		} else {
-			// Modbus: inject synthetic hold
+			// No bypassSignalState driver: inject synthetic hold into runtime
 			s.injectSyntheticLongPress(resourceID, msg.Timestamp, holdMs)
 		}
 	} else {
-		// Other types: forward longPressCommand as-is
+		// Default (!simulateHold) or non-digitalInput: forward longPressCommand directly
 		s.forwardLongPressCommand(resourceID, msg)
 	}
 }
