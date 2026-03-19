@@ -248,6 +248,31 @@
             }
         ]
     },
+    "ihcCredentialsFile": "config/ihc-credentials-dev.json",
+    "ihcControllers": [
+        {
+            "name": "ihc2",
+            "host": "localhost",
+            "port": 8180,
+            "waitTimeoutSec": 10,
+            "maxConsecutiveErrors": 4,
+            "healthCheck": {
+                "resources": ["0x9f145c"],
+                "intervalSec": 60,
+                "maxFailures": 1
+            },
+            "resources": [
+                { "resourceId": "0x9F045C", "type": "digitalInput" },
+                { "resourceId": "0x9f145c", "type": "digitalInput" },
+                { "resourceId": "0x9F085E", "type": "digitalOutput" },
+                { "resourceId": "0x9F0B5C", "type": "digitalInput" },
+                { "resourceId": "0x9F125C", "type": "digitalInput" },
+                { "resourceId": "0x9F165E", "type": "digitalOutput" },
+                { "resourceId": "0x8AE35D", "type": "analogOutput" },
+                { "resourceId": "0xA74E5B", "type": "digitalOutput" }
+            ]
+        }
+    ],
     "heartbeatInterval": 600,
     "pollIntervalMs": 500
 }

@@ -1,0 +1,16 @@
+{
+    "bindings": [
+        {
+            "controller": "ihc2",
+            "trigger": "0x9F045C",
+            "action": "toggle",
+            "target": "0x9F085E"
+        },
+        {
+            "controller": "ihc2",
+            "trigger": "0x9F125C",
+            "action": "toggle",
+            "target": "0x9F165E"
+        }
+    ]
+}

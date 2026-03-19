@@ -43,3 +43,8 @@ mosquitto/log/
 sandbox.json
 sandbox2.json
 sandbox3.json
+config/edge-config-live.json
+config/devserver-live.conf
+/ihc-sim
+/mb-sim
+.pytest_cache/

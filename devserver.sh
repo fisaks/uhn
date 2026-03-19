@@ -1,98 +1,150 @@
 #!/bin/bash
 
-SESSION="uhn-dev"
 WORKDIR=$(pwd)
 
 print_usage() {
-    echo "Usage: $0 {start|stop}"
-    echo "Commands:"
-    echo "  start   Start the dev server in tmux"
-    echo "  debug   Start dev server with headless dlv "
-    echo "  stop    Stop the dev server"
+    echo "Usage: $0 [profile] {start|stop|debug}"
+    echo ""
+    echo "  $0 start             dev profile (default)"
+    echo "  $0 live start        live profile"
+    echo "  $0 live debug        live profile with dlv"
+    echo "  $0 live stop         stop live session"
+    echo ""
+    echo "Profiles:"
+    echo "  dev    Simulators: socat serial ports, Modbus sim, IHC sim"
+    echo "  live   Real hardware: physical serial ports, real IHC controller"
+    echo ""
+    echo "Config files per profile:"
+    echo "  config/edge-config-{profile}.json    Edge configuration"
+    echo "  config/devserver-{profile}.conf       Simulator flags"
 }
 
 start_dev_env() {
-    echo "🔧 Starting development environment in tmux session '$SESSION'..."
-    
-    local debug="${1:-false}"   # default false
+    local debug="${1:-false}"
+    local profile="${2:-dev}"
+
+    SESSION="uhn-${profile}"
+    local CONFIG_FILE="config/edge-config-${profile}.json"
+    local ENV_FILE="config/devserver-${profile}.conf"
+
+    # Validate config + env files exist
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo "ERROR: Config file not found: $CONFIG_FILE"
+        exit 1
+    fi
+    if [[ ! -f "$ENV_FILE" ]]; then
+        echo "ERROR: Env file not found: $ENV_FILE"
+        exit 1
+    fi
+
+    # Source env file for simulator flags
+    source "$ENV_FILE"
+
+    echo "Starting development environment: profile=$profile, session=$SESSION"
+    echo "  Config: $CONFIG_FILE"
+    echo "  Env:    $ENV_FILE"
+    echo "  MODBUS_SIM=$MODBUS_SIM, IHC_SIM=$IHC_SIM"
+
     if [[ "$debug" == "true" ]]; then
-        echo "running in debug hot reload mode"
+        echo "  Mode: debug hot reload"
         EDGE_AIR_FILE=".air-dvl.toml"
         SIM_AIR_FILE=".air-sim-dvl.toml"
     else
-        echo "running in hot reload mode"
+        echo "  Mode: hot reload"
         EDGE_AIR_FILE=".air.toml"
         SIM_AIR_FILE=".air-sim.toml"
     fi
+
     # Start Mosquitto container before anything else
-    if ! docker ps --format '{{.Names}}' | grep -q '^uhn-mosquitto$$'; then
-        echo "🐳 Starting Mosquitto via Docker Compose..."
+    if ! docker ps --format '{{.Names}}' | grep -q '^uhn-mosquitto$'; then
+        echo "Starting Mosquitto via Docker Compose..."
         docker compose --profile dev up -d mosquitto
     else
-        echo "✅ Mosquitto already running"
+        echo "Mosquitto already running"
     fi
-    
-    echo "⏳ Waiting for Mosquitto to be ready on localhost:1883..."
+
+    echo "Waiting for Mosquitto to be ready on localhost:1883..."
     for i in {1..10}; do
         if nc -z localhost 1883; then
-            echo "✅ Mosquitto is up!"
+            echo "Mosquitto is up!"
             break
         fi
         echo "  ...retrying ($i)"
         sleep 1
     done
-    
+
     # Check if the session already exists
     if tmux has-session -t $SESSION 2>/dev/null; then
         echo "Session $SESSION already exists. Attaching to it..."
         tmux attach-session -t $SESSION
         exit 0
     fi
-    
-    echo "🔧 Creating virtual serial ports with socat..."
-    
-    SOCAT_LOG=$(mktemp)
-    socat -d -d pty,raw,echo=0 pty,raw,echo=0 2>"$SOCAT_LOG" &
-    SOCAT_PID=$!
-    sleep 1
-    PORTS=$(grep -o '/dev/pts/[0-9]\+' "$SOCAT_LOG")
-    EDGE_PORT=$(echo "$PORTS" | sed -n 1p)
-    SIM_PORT=$(echo "$PORTS" | sed -n 2p)
-    
-    # Write temporary config file with correct port.
+
     # NOT exported — these are passed explicitly to the tmux session via -e flags.
     # Exporting would pollute the tmux server's global environment and leak into
     # other tmux sessions (e.g. the UXP devserver).
-    UHN_EDGE_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/edge-config-dev.json"
-    SIM_CONFIG_PATH="/home/freddi/Projects/go-uhn/tmp/sim-config-dev.json"
-    UHN_WORKSPACE_PATH="/home/freddi/Projects/go-uhn/tmp/uhn-workspace"
+    UHN_EDGE_CONFIG_PATH="$WORKDIR/tmp/edge-config-${profile}.json"
+    SIM_CONFIG_PATH="$WORKDIR/tmp/sim-config-${profile}.json"
+    UHN_WORKSPACE_PATH="$WORKDIR/tmp/uhn-workspace"
     UHN_NODE_PATH="/home/freddi/.nvm/versions/node/v22.11.0"
     UHN_RUNTIME_PATH="/home/freddi/Projects/uxp"
     TZ="Europe/Helsinki"
-    
-    mkdir -p $UHN_WORKSPACE_PATH
+
+    mkdir -p "$UHN_WORKSPACE_PATH"
     rm -f "$UHN_EDGE_CONFIG_PATH" "$SIM_CONFIG_PATH"
-    jq --arg port "$EDGE_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$UHN_EDGE_CONFIG_PATH"
-    jq --arg port "$SIM_PORT" '.buses[0].port = $port' config/edge-config-dev.json > "$SIM_CONFIG_PATH"
-    
+
+    # Patch config: socat serial ports only when MODBUS_SIM is enabled
+    if [[ "$MODBUS_SIM" == "true" ]]; then
+        echo "Creating virtual serial ports with socat..."
+        SOCAT_LOG=$(mktemp)
+        socat -d -d pty,raw,echo=0 pty,raw,echo=0 2>"$SOCAT_LOG" &
+        SOCAT_PID=$!
+        sleep 1
+        PORTS=$(grep -o '/dev/pts/[0-9]\+' "$SOCAT_LOG")
+        EDGE_PORT=$(echo "$PORTS" | sed -n 1p)
+        SIM_PORT=$(echo "$PORTS" | sed -n 2p)
+
+        jq --arg port "$EDGE_PORT" '.buses[0].port = $port' "$CONFIG_FILE" > "$UHN_EDGE_CONFIG_PATH"
+        jq --arg port "$SIM_PORT" '.buses[0].port = $port' "$CONFIG_FILE" > "$SIM_CONFIG_PATH"
+
+        echo "  Edge serial: $EDGE_PORT"
+        echo "  Sim serial:  $SIM_PORT"
+        echo "EDGE_PORT=$EDGE_PORT" > tmp/ports.env
+        echo "SIM_PORT=$SIM_PORT" >> tmp/ports.env
+    else
+        # No socat — use config as-is
+        cp "$CONFIG_FILE" "$UHN_EDGE_CONFIG_PATH"
+        EDGE_PORT=""
+        SIM_PORT=""
+    fi
+
+    # Patch IHC credentials path to absolute when IHC_SIM is enabled
+    if [[ "$IHC_SIM" == "true" ]]; then
+        local creds_rel
+        creds_rel=$(jq -r '.ihcCredentialsFile // empty' "$UHN_EDGE_CONFIG_PATH")
+        if [[ -n "$creds_rel" && ! "$creds_rel" = /* ]]; then
+            jq --arg path "$WORKDIR/$creds_rel" '.ihcCredentialsFile = $path' "$UHN_EDGE_CONFIG_PATH" > "${UHN_EDGE_CONFIG_PATH}.tmp"
+            mv "${UHN_EDGE_CONFIG_PATH}.tmp" "$UHN_EDGE_CONFIG_PATH"
+        fi
+    fi
+
     UHN_MQTT_URL=tcp://localhost:1883
     UHN_EDGE_NAME=edge1
     UHN_LOG_LEVEL=debug
     UHN_PUBLIC_HOST=$(hostname -I | awk '{print $1}')
-    
-    echo "🧩 Edge connected to: $EDGE_PORT"
-    echo "🧩 Simulator listening on: $SIM_PORT"
-    echo "📊 Log level: $UHN_LOG_LEVEL"
-    echo "📡 MQTT: $UHN_MQTT_URL"
-    echo "📄 Config: $UHN_EDGE_CONFIG_PATH / $SIM_CONFIG_PATH"
-    echo "EDGE_PORT=$EDGE_PORT" > tmp/ports.env
-    echo "SIM_PORT=$SIM_PORT" >> tmp/ports.env
-    
-    
-    # Create tmux session and first pane: MQTT monitor
-    #tmux new-session -d -s $SESSION -n dev
-    tmux new-session -d -s $SESSION -n dev -e EDGE_PORT="$EDGE_PORT" \
+
+    echo "  Log level: $UHN_LOG_LEVEL"
+    echo "  MQTT: $UHN_MQTT_URL"
+    echo "  Config: $UHN_EDGE_CONFIG_PATH"
+
+    # --- Window 1: dev (monitor, mosquitto, edge) ---
+
+    SIM_BASE_CONFIG="$WORKDIR/$CONFIG_FILE"
+
+    tmux new-session -d -s $SESSION -n dev \
+        -e EDGE_PORT="$EDGE_PORT" \
         -e SIM_PORT="$SIM_PORT" \
+        -e SIM_BASE_CONFIG="$SIM_BASE_CONFIG" \
         -e UHN_EDGE_CONFIG_PATH="$UHN_EDGE_CONFIG_PATH" \
         -e SIM_CONFIG_PATH="$SIM_CONFIG_PATH" \
         -e UHN_WORKSPACE_PATH="$UHN_WORKSPACE_PATH" \
@@ -103,55 +155,92 @@ start_dev_env() {
         -e UHN_EDGE_NAME="$UHN_EDGE_NAME" \
         -e UHN_LOG_LEVEL="$UHN_LOG_LEVEL" \
         -e UHN_PUBLIC_HOST="$UHN_PUBLIC_HOST"
-    #tmux send-keys -t $SESSION.0 "mosquitto_sub -h localhost -t 'uhn/#' -v" C-m
+
+    # Pane 0: MQTT monitor
     tmux send-keys -t $SESSION.0 "go build -o tmp/uhn-monitor ./cmd/tools/monitor && ./tmp/uhn-monitor" C-m
-    
-    # Split below (75% bottom), top remains MQTT monitor
+
+    # Pane 1: Mosquitto logs
     tmux split-window -v -t $SESSION.0
     tmux resize-pane -t $SESSION.0 -y 15
     tmux send-keys -t $SESSION.1 \
-    "echo '🪵 Showing Mosquitto logs (press Ctrl-b d to detach)' && docker logs -f uhn-mosquitto" C-m
+        "echo 'Showing Mosquitto logs (press Ctrl-b d to detach)' && docker logs -f uhn-mosquitto" C-m
+
+    # Pane 2: Edge server
     tmux split-window -v -t $SESSION.1
     tmux resize-pane -t $SESSION.1 -y 15
-    
-    
-    
-    # Pane 1: Edge server via air
     tmux send-keys -t $SESSION.2 "cd $WORKDIR && air -c $EDGE_AIR_FILE" C-m
-    
-    # Split Pane 1 horizontally → Pane 2: Modbus simulator
-    tmux split-window -h -t $SESSION.2
-    tmux send-keys -t $SESSION.3 "cd $WORKDIR && air -c $SIM_AIR_FILE" C-m
-   
-    
-    # Focus back to edge pane
+
+    # Pane 3: empty shell
     tmux select-pane -t $SESSION.1
     tmux split-window -h -t $SESSION.1
     tmux select-pane -t $SESSION.2
-    
+
+    # --- Window 2: sims (Modbus left, IHC right) ---
+
+    tmux new-window -t $SESSION -n sims
+
+    # Left pane: Modbus simulator
+    if [[ "$MODBUS_SIM" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.0 "cd $WORKDIR && air -c $SIM_AIR_FILE" C-m
+    else
+        tmux send-keys -t $SESSION:sims.0 "echo 'Modbus sim disabled for profile: ${profile}'" C-m
+    fi
+
+    # Right pane: IHC simulator
+    tmux split-window -h -t $SESSION:sims.0
+    if [[ "$IHC_SIM" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.1 "cd $WORKDIR && air -c .air-ihc-sim.toml" C-m
+    else
+        tmux send-keys -t $SESSION:sims.1 "echo 'IHC sim disabled for profile: ${profile}'" C-m
+    fi
+
+    # Focus back to dev window
+    tmux select-window -t $SESSION:dev
+
     tmux attach -t $SESSION
 }
 
 stop_dev_env() {
-    echo "🛑 Stopping development environment..."
-    tmux kill-session -t $SESSION 2>/dev/null && echo "✔️  Stopped tmux session '$SESSION'"
-    
-    echo "🧼 Killing socat..."
+    local profile="${1:-dev}"
+    SESSION="uhn-${profile}"
+
+    echo "Stopping development environment: profile=$profile, session=$SESSION"
+    tmux kill-session -t $SESSION 2>/dev/null && echo "Stopped tmux session '$SESSION'"
+
+    echo "Killing socat..."
     pkill -f "socat -d -d pty,raw,echo=0"
-    
-    echo "🧼 Stopping Mosquitto container..."
+
+    echo "Stopping Mosquitto container..."
     docker compose --profile dev stop mosquitto
 }
 
+# Parse args: [profile] command
+# If first arg is a known command, profile defaults to "dev"
+# Otherwise first arg is the profile and second is the command
 case "$1" in
+    start|stop|debug )
+        PROFILE="dev"
+        COMMAND="$1"
+    ;;
+    "" )
+        print_usage
+        exit 0
+    ;;
+    * )
+        PROFILE="$1"
+        COMMAND="$2"
+    ;;
+esac
+
+case "$COMMAND" in
     start )
-        start_dev_env false
+        start_dev_env false "$PROFILE"
     ;;
     debug )
-        start_dev_env   true
+        start_dev_env true "$PROFILE"
     ;;
     stop )
-        stop_dev_env
+        stop_dev_env "$PROFILE"
     ;;
     * )
         print_usage

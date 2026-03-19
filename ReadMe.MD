@@ -134,17 +134,28 @@ or just `make install-tools`
 
 ## Development environment
 
-Starts the development server in a tmux session with multiple windows for different services
+Starts the development server in a tmux session with two windows:
+- **dev** — MQTT monitor, Mosquitto logs, edge server, empty shell
+- **sims** — Modbus simulator (left), IHC simulator (right)
 
-`make dev`
+### Profiles
 
-Press `Ctrl-b + d` to detach the session, then run the following command to stop the development server:
+```sh
+./devserver.sh start             # dev profile (default) — all simulators
+./devserver.sh live start        # live profile — real hardware
+./devserver.sh live debug        # live profile with dlv debugger
+./devserver.sh live stop         # stop live session
+```
 
-`make dev-stop`
+Each profile uses two files:
+- `config/edge-config-{profile}.json` — edge configuration
+- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`)
 
-Can mouse copy when holding shift down
+The `dev` profile runs all simulators. The `live` profile can be customized per-flag, e.g. `MODBUS_SIM=true` + `IHC_SIM=false` for real IHC with simulated Modbus.
 
-Uses go Air for go watch devserver.sh start mqtt in docker uhn runs locally
+Press `Ctrl-b + d` to detach the session. Switch windows with `Ctrl-b + n` / `Ctrl-b + p`.
+
+Uses go Air for hot reload. Mosquitto runs in Docker, edge runs locally.
 
 ## Docker
 
@@ -170,33 +181,30 @@ make build-uhn-tools
 
 ./bin/uhnctl push --edge edge1 --device io_kitchen --address 7 --value 1
 
-## Simulator
+## Simulators
 
-Rest interface
+### Modbus Simulator (port 8080)
+
+REST interface for controlling simulated Modbus devices.
 
 ```sh
 # Get whole device state
-
 curl -s http://localhost:8080/device/{busId}/{device}
 
 # Partial update (PATCH semantics)
-
 curl -s -X PATCH http://localhost:8080/device/{busId}/{device} \
   -H 'Content-Type: application/json' \
   -d '{"digitalOutputs":[1,0,0,1],"analogOutputs":[123,456]}'
 
 # Get/set a single digital output
-
 curl -s http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}
 curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalOutput/{i} \
   -H 'Content-Type: application/json' -d '{"value":1}'
 
 # Toggle a digital output
-
 curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalOutput/{i}/toggle
 
 # Get/set/toggle/press a digital input
-
 curl -s http://localhost:8080/device/{busId}/{device}/digitalInput/{i}
 curl -s -X PUT http://localhost:8080/device/{busId}/{device}/digitalInput/{i} \
   -H 'Content-Type: application/json' -d '{"value":1}'
@@ -206,13 +214,12 @@ curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/p
 curl -s -X POST http://localhost:8080/device/{busId}/{device}/digitalInput/{i}/press/hold2
 
 # Analog registers
-
 curl -s http://localhost:8080/device/{busId}/{device}/analogOutput/{i}
 curl -s -X PUT http://localhost:8080/device/{busId}/{device}/analogOutput/{i} \
   -H 'Content-Type: application/json' -d '{"value":65535}'
 ```
 
-### Analog register types
+#### Analog register types
 
 Analog GET/PUT endpoints support typed reads and writes for multi-register values.
 
@@ -229,57 +236,102 @@ All multi-register values use big-endian byte order (high word first).
 **Reading** — pass `?type=` query parameter:
 
 ```sh
-# uint16 (default)
-curl -s 'http://localhost:8080/device/{busId}/{device}/analogInput/{i}'
-
-# float32
 curl -s 'http://localhost:8080/device/{busId}/{device}/analogInput/{i}?type=float32'
-
-# int16 / uint32 / int32
-curl -s '...analogInput/{i}?type=int16'
-curl -s '...analogInput/{i}?type=uint32'
-curl -s '...analogInput/{i}?type=int32'
 ```
 
 **Writing** — include an optional `"type"` field in the JSON body. When omitted, a decimal value is auto-detected as `float32`, an integer as `uint16`.
 
 ```sh
-# Auto-detected uint16
-curl -s -X PUT .../analogInput/{i} -d '{"value": 1000}'
-
-# Auto-detected float32 (decimal point)
 curl -s -X PUT .../analogInput/{i} -d '{"value": 72.2}'
-
-# Explicit types
 curl -s -X PUT .../analogInput/{i} -d '{"value": -5, "type": "int16"}'
-curl -s -X PUT .../analogInput/{i} -d '{"value": 100000, "type": "uint32"}'
-curl -s -X PUT .../analogInput/{i} -d '{"value": -100000, "type": "int32"}'
 ```
 
-### Profile ticker
+#### Profile ticker
 
 Device profiles simulate periodic register changes (e.g. Shelly Pro 3EM energy readings). The ticker starts **disabled** and can be controlled via REST:
 
 ```sh
-# Enable the profile ticker
 curl -s -X POST http://localhost:8080/admin/ticker/enable
-
-# Check ticker status
 curl -s http://localhost:8080/admin/ticker/status
-
-# Disable the profile ticker
 curl -s -X POST http://localhost:8080/admin/ticker/disable
+```
+
+### IHC Simulator (SOAP on port 8180, REST on port 8090)
+
+Simulates an IHC controller with full SOAP protocol support. The edge connects to it like a real IHC controller — authentication, resource subscription, long-poll notifications, and setValue all work.
+
+Resources are initialized from `ihcControllers[].resources` in the edge config. Credentials come from `config/ihc-credentials-dev.json`.
+
+#### REST control plane
+
+```sh
+# List all resources on a controller
+curl -s http://localhost:8090/controller/ihc2/resources
+
+# Get/set a single resource (hex or decimal ID)
+curl -s http://localhost:8090/controller/ihc2/resource/0x9F085E
+curl -s -X PUT http://localhost:8090/controller/ihc2/resource/0x9F085E \
+  -H 'Content-Type: application/json' -d '{"value": true}'
+
+# Toggle a boolean resource
+curl -s -X POST http://localhost:8090/controller/ihc2/resource/0x9F045C/toggle
+
+# Simulate button press (tap=50ms, hold1=500ms, hold2=1500ms)
+curl -s -X POST http://localhost:8090/controller/ihc2/resource/0x9F045C/press/tap
+
+# Session management
+curl -s http://localhost:8090/controller/ihc2/sessions
+curl -s -X POST http://localhost:8090/controller/ihc2/session/expire
+
+# Admin: stop/start SOAP server (outage simulation)
+curl -s http://localhost:8090/admin/status
+curl -s -X POST http://localhost:8090/admin/stop/ihc2
+curl -s -X POST http://localhost:8090/admin/start/ihc2
+```
+
+#### Bindings
+
+Bindings create simple reactive links between resources — e.g. tapping an input toggles an output. Loaded from `config/ihc-sim-bindings.json` at startup and manageable via REST at runtime.
+
+Config file format:
+
+```json
+{
+    "bindings": [
+        {
+            "controller": "ihc2",
+            "trigger": "0x9F045C",
+            "action": "toggle",
+            "target": "0x9F085E"
+        }
+    ]
+}
+```
+
+Supported actions: `toggle` (fires on rising edge of trigger).
+
+```sh
+# List all bindings
+curl -s http://localhost:8090/bindings
+
+# Add a binding at runtime
+curl -s -X POST http://localhost:8090/bindings \
+  -H 'Content-Type: application/json' \
+  -d '{"controller":"ihc2","trigger":"0x9F045C","action":"toggle","target":"0x9F085E"}'
+
+# Remove a binding
+curl -s -X DELETE http://localhost:8090/bindings/b1
 ```
 
 ## Navigating the tmux Environment
 
-- **Detach the tmux Session:** Press `Ctrl+b` and then `d` to detach the session while leaving the processes running.
-- Can mouse copy when holding shift down
-- **Switch Between Panes:** Use `Ctrl+b` followed by an `arrow key` to switch between panes.
-- **Toggle Pane Size:** To make the current pane the whole window, press `Ctrl+b` and then `z`. To toggle back, press `Ctrl+b` and then `z` again.
-- **Reattach to the tmux Session:** Run `tmux attach-session -t uhn-dev` or just `devserver.sh start`.
-- **Kill the tmux Session:** Exit all panes or kill the session with `tmux kill-session -t uhn-dev` or just `devserver.sh stop`.
+Session name is `uhn-{profile}` (e.g. `uhn-dev`, `uhn-live`).
 
-`tmux kill-session -t uhn-dev` or just `devserver.sh stop`
-
-`tmux kill-server` Will kill the whole tmux server
+- **Detach:** `Ctrl+b d` — leaves processes running
+- **Switch windows:** `Ctrl+b n` (next) / `Ctrl+b p` (previous) — toggle between dev and sims windows
+- **Switch panes:** `Ctrl+b arrow` — navigate between panes in current window
+- **Zoom pane:** `Ctrl+b z` — toggle current pane fullscreen
+- **Mouse copy:** hold `Shift` while selecting
+- **Reattach:** `tmux attach-session -t uhn-dev` or just `./devserver.sh start`
+- **Stop:** `./devserver.sh stop` or `./devserver.sh live stop`
+- **Kill all tmux:** `tmux kill-server`

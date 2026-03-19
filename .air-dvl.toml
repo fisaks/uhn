@@ -8,4 +8,4 @@ full_bin = "dlv exec tmp/edge --listen=127.0.0.1:2345 --headless=true --api-vers
 bin = "tmp/edge"
 include_ext = ["go","json"]
 exclude_dir = ["tmp", "vendor"]
-pre_cmd = ["jq --arg port \"$EDGE_PORT\" '.buses[0].port = $port' config/edge-config-dev.json > $UHN_EDGE_CONFIG_PATH"]
+pre_cmd = ["jq --arg port \"$EDGE_PORT\" '.buses[0].port = $port' $SIM_BASE_CONFIG > $UHN_EDGE_CONFIG_PATH"]

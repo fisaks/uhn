@@ -8,4 +8,4 @@ bin = "tmp/mb-sim"
 include_ext = ["go","json"]
 include_dir = ["cmd/tools/mb-sim", "internal/simulator", "internal/config","config"]
 exclude_dir = ["tmp", "vendor"]
-pre_cmd = ["jq --arg port \"$SIM_PORT\" '.buses[0].port = $port' config/edge-config-dev.json > $SIM_CONFIG_PATH"]
+pre_cmd = ["jq --arg port \"$SIM_PORT\" '.buses[0].port = $port' $SIM_BASE_CONFIG > $SIM_CONFIG_PATH"]

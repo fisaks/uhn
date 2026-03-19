@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/ihc-sim ./cmd/tools/ihc-sim"
+bin = "tmp/ihc-sim"
+
+include_ext = ["go","json"]
+include_dir = ["cmd/tools/ihc-sim", "internal/ihcsim", "internal/ihc", "internal/config", "config"]
+exclude_dir = ["tmp", "vendor"]
