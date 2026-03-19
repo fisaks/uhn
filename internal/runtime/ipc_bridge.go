@@ -44,6 +44,7 @@ type IPCBridge struct {
 	actionHandler                    ActionHandler
 	logicalResourceStatePublisher    *LogicalResourceStatePublisher
 	logicalResourceStateSubscriber   *LogicalResourceStateSubscriber
+	devicePinStatePublisher          *DevicePinStatePublisher
 
 	broker messaging.Broker
 }
@@ -72,6 +73,12 @@ func (b *IPCBridge) SetLogicalResourceStatePublisher(pub *LogicalResourceStatePu
 // SetLogicalResourceStateSubscriber sets the subscriber used to restore logical resource state on restart.
 func (b *IPCBridge) SetLogicalResourceStateSubscriber(sub *LogicalResourceStateSubscriber) {
 	b.logicalResourceStateSubscriber = sub
+}
+
+// SetDevicePinStatePublisher sets the publisher for per-pin physical state MQTT messages.
+// Used by IHC and future drivers that produce individual typed values.
+func (b *IPCBridge) SetDevicePinStatePublisher(pub *DevicePinStatePublisher) {
+	b.devicePinStatePublisher = pub
 }
 
 // SetBroker sets the MQTT broker for publishing runtime rules.
@@ -231,10 +238,7 @@ func (b *IPCBridge) prepareTimerRestoration() []TimerCommand {
 // HandleDeviceState converts polled device state into per-resource updates and
 // sends changed resources to the runtime. Called by BridgedPublisher.
 func (b *IPCBridge) HandleDeviceState(ctx context.Context, state uhn.DeviceState) {
-	b.resourceMapMu.RLock()
-	rm := b.resourceMap
-	b.resourceMapMu.RUnlock()
-
+	rm := b.getResourceMap()
 	if rm == nil {
 		return // runtime not ready yet
 	}
@@ -249,6 +253,41 @@ func (b *IPCBridge) HandleDeviceState(ctx context.Context, state uhn.DeviceState
 	for _, rs := range resourceStates {
 		b.updatePhysicalState(rs.ResourceID, rs.Value, rs.Timestamp)
 	}
+}
+
+// UpdatePhysicalStateByAddress publishes per-pin physical state to MQTT and,
+// if a ResourceMap is available, resolves the address to a resource ID and
+// updates the local runtime state. Used by IHC and future drivers that produce
+// individual typed values (vs Modbus byte-array DeviceState).
+//
+// MQTT publishing happens unconditionally (physical state is hardware-level
+// and independent of blueprint). Local runtime state update requires an
+// active blueprint with a ResourceMap.
+func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64) {
+	// Publish physical pin state to MQTT (independent of blueprint)
+	if b.devicePinStatePublisher != nil {
+		b.devicePinStatePublisher.Publish(ctx, device, resourceType, pin, value, timestamp)
+	}
+
+	// Update local runtime state (requires ResourceMap from active blueprint)
+	rm := b.getResourceMap()
+	if rm == nil {
+		return
+	}
+
+	resourceID, ok := rm.LookupResourceID(device, resourceType, pin)
+	if !ok {
+		return
+	}
+
+	b.updatePhysicalState(resourceID, value, timestamp)
+}
+
+// getResourceMap returns the current resource map (nil if runtime not ready).
+func (b *IPCBridge) getResourceMap() *ResourceMap {
+	b.resourceMapMu.RLock()
+	defer b.resourceMapMu.RUnlock()
+	return b.resourceMap
 }
 
 // HandleSignalUpdate updates the signal state for a resource, recomputes
@@ -324,6 +363,19 @@ func (b *IPCBridge) sendStateUpdate(state RuntimeResourceState) {
 	if err := b.writeJSON(cmd); err != nil {
 		logging.Error("Failed to send stateUpdate", "resourceId", state.ResourceID, "error", err)
 	}
+}
+
+// InjectSyntheticState sends a stateUpdate to the rule runtime without
+// modifying the physical/signal/computed state model. Used to simulate
+// button press/release for tap/longPress commands on physical resources
+// without a bypassSignalState driver (e.g. Modbus digitalInput (readonly)) and
+// logical resources (complex, virtualDigitalInput).
+func (b *IPCBridge) InjectSyntheticState(resourceID string, value any, timestamp int64) {
+	b.sendStateUpdate(RuntimeResourceState{
+		ResourceID: resourceID,
+		Value:      value,
+		Timestamp:  timestamp,
+	})
 }
 
 // sendFullStateUpdate sends the complete computed state snapshot to the runtime.
@@ -469,10 +521,7 @@ func (b *IPCBridge) handleActions(ctx context.Context, raw []byte) {
 		return
 	}
 
-	b.resourceMapMu.RLock()
-	rm := b.resourceMap
-	b.resourceMapMu.RUnlock()
-
+	rm := b.getResourceMap()
 	for _, action := range event.Actions {
 		var resource *RuntimeResource
 		// Mute actions don't reference a resource by resourceId

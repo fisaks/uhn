@@ -1,4 +1,4 @@
-.PHONY: install-tools
+.PHONY: install-tools unit-test
 
 install-tools:
 	@echo "📦 Installing system tools..."
@@ -22,6 +22,9 @@ install-tools:
 	
 	@echo "✅ All tools installed!"	
 																
+
+unit-test:
+	go test ./...
 
 dev:
 	./devserver.sh start

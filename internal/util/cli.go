@@ -11,7 +11,7 @@ import (
 
 func ParseSandboxConfigArgs(args []string) string {
 	if len(args) < 2 || args[1] != "run" {
-		Fatal("missing command (expected: %s run)", args[0])
+		Fatal("cli","missing command (expected: %s run)", args[0])
 	}
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 

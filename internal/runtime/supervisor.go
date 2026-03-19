@@ -309,9 +309,14 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 	mode := s.detectMode()
 	logging.Info("Rule runtime mode detected", "mode", mode)
 
+	// COREPACK_HOME: The sandbox has HOME=/tmp and loopback-only networking,
+	// so corepack can't find its cache or fetch from npm. We point it to a
+	// pre-populated cache inside the Node installation (/uhn-node maps to the
+	// nvm Node directory on the host). After upgrading pnpm, refresh with:
+	//   cp -r ~/.cache/node/corepack ~/.nvm/versions/node/v22.11.0/.corepack-cache
 	cfg := &config.SandboxConfig{
 		Cwd:       "/uhn-runtime/packages/uhn-rule-runtime",
-		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + s.tz},
+		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + s.tz, "COREPACK_HOME=/uhn-node/.corepack-cache"},
 		Limits:    &config.Limits{MemoryBytes: 512 * 1024 * 1024, MaxPids: 254},
 		RunAsUser: currentUser.Username,
 		Network:   config.NetworkLoopback,

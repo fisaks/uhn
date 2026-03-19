@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
@@ -16,6 +17,7 @@ import (
 type EdgeActionHandler struct {
 	edgeName      string
 	pollers       poller.BusPollers
+	drivers       map[string]uhn.DeviceDriver // keyed by device name (IHC, future Zigbee/Mi Light)
 	broker        messaging.Broker
 	ipcBridge     *IPCBridge
 	signalTracker *SignalTracker
@@ -25,13 +27,18 @@ type EdgeActionHandler struct {
 func NewEdgeActionHandler(
 	edgeName string,
 	pollers poller.BusPollers,
+	drivers map[string]uhn.DeviceDriver,
 	broker messaging.Broker,
 	ipcBridge *IPCBridge,
 	signalTracker *SignalTracker,
 ) *EdgeActionHandler {
+	if drivers == nil {
+		drivers = make(map[string]uhn.DeviceDriver)
+	}
 	return &EdgeActionHandler{
 		edgeName:      edgeName,
 		pollers:       pollers,
+		drivers:       drivers,
 		broker:        broker,
 		ipcBridge:     ipcBridge,
 		signalTracker: signalTracker,
@@ -64,7 +71,7 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 	}
 }
 
-// handleSetDigitalOutput pushes a digital output command to the appropriate poller.
+// handleSetDigitalOutput pushes a digital output command to the appropriate driver or poller.
 func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
 	if resource.Type != "digitalOutput" {
 		logging.Warn("setDigitalOutput on non-digitalOutput resource", "resourceId", action.ResourceID, "type", resource.Type)
@@ -76,6 +83,17 @@ func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action R
 		return
 	}
 
+	// Try device driver first (IHC, future Zigbee/Mi Light)
+	if driver, ok := h.drivers[resource.Device]; ok {
+		if err := driver.SetOutput(ctx, *resource.Pin, action.Value); err != nil {
+			logging.Error("setDigitalOutput: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
+		} else {
+			logging.Debug("setDigitalOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+		}
+		return
+	}
+
+	// Fall back to bus pollers
 	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
 	if bp == nil || device == nil {
 		logging.Warn("setDigitalOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
@@ -93,11 +111,11 @@ func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action R
 	if !bp.PushCommand(cmd) {
 		logging.Warn("setDigitalOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
 	} else {
-		logging.Debug("setDigitalOutput pushed", "resourceId", action.ResourceID, "pin", *resource.Pin, "value", value)
+		logging.Debug("setDigitalOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(*resource.Pin), "value", value)
 	}
 }
 
-// handleSetAnalogOutput pushes an analog output command to the appropriate poller.
+// handleSetAnalogOutput pushes an analog output command to the appropriate driver or poller.
 func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
 	if resource.Type != "analogOutput" {
 		logging.Warn("setAnalogOutput on non-analogOutput resource", "resourceId", action.ResourceID, "type", resource.Type)
@@ -109,6 +127,17 @@ func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action Ru
 		return
 	}
 
+	// Try device driver first (IHC, future Zigbee/Mi Light)
+	if driver, ok := h.drivers[resource.Device]; ok {
+		if err := driver.SetOutput(ctx, *resource.Pin, action.Value); err != nil {
+			logging.Error("setAnalogOutput: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
+		} else {
+			logging.Debug("setAnalogOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+		}
+		return
+	}
+
+	// Fall back to bus pollers
 	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
 	if bp == nil || device == nil {
 		logging.Warn("setAnalogOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
@@ -126,7 +155,7 @@ func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action Ru
 	if !bp.PushCommand(cmd) {
 		logging.Warn("setAnalogOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
 	} else {
-		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", *resource.Pin, "value", value)
+		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(*resource.Pin), "value", value)
 	}
 }
 
@@ -145,7 +174,28 @@ func toUint16Value(v any) uint16 {
 }
 
 // handleEmitSignal updates local signal state and publishes to MQTT for master.
+// For bypassSignalState drivers (IHC), the signal is forwarded to the controller
+// and NO local signal state is updated — state flows back through the driver's
+// notification mechanism as physical state (P).
 func (h *EdgeActionHandler) handleEmitSignal(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	// Check if a device driver handles this resource and bypasses signal state
+	if resource != nil && resource.Pin != nil {
+		if driver, ok := h.drivers[resource.Device]; ok && driver.BypassSignalState() {
+			// Forward signal to the driver's controller only.
+			// Do NOT update local signal state (S) or publish to MQTT signal topic.
+			// The controller is the source of truth — state comes back through
+			// the notification loop as physical state (P).
+			// Setting S would mask P since C = S ?? P.
+			if err := driver.HandleSignal(ctx, *resource.Pin, action.Value); err != nil {
+				logging.Error("emitSignal: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
+			} else {
+				logging.Debug("emitSignal forwarded to driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+			}
+			return
+		}
+	}
+
+	// Default path: update local signal state and publish to MQTT
 	timestamp := time.Now().UnixMilli()
 
 	// Update local IPC bridge state so the runtime sees it immediately

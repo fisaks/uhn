@@ -54,3 +54,25 @@ type EdgeSubscriber interface {
 	OnDeviceCommand(ctx context.Context, command IncomingDeviceCommand) error
 	OnCommand(ctx context.Context, command IncomingCommand) error
 }
+
+// StateUpdater is the interface drivers use to push physical state updates
+// to the IPCBridge. This avoids a direct dependency on the runtime package.
+type StateUpdater interface {
+	UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64)
+}
+
+// DeviceDriver is the generic driver interface for protocol-agnostic device
+// interaction. The action handler dispatches through this interface instead of
+// branching on protocol type. IHC implements it; future Zigbee/Mi Light drivers
+// will too.
+type DeviceDriver interface {
+	// HandleSignal forwards a signal to the physical device.
+	HandleSignal(ctx context.Context, resourceID int, value any) error
+	// SetOutput writes an output value to the physical device.
+	SetOutput(ctx context.Context, resourceID int, value any) error
+	// BypassSignalState returns true if signal overrides (S) should be skipped
+	// for this driver. When true, emitSignal forwards to the device instead of
+	// setting local signal state — the device's controller is the source of
+	// truth and state flows back as physical state (P).
+	BypassSignalState() bool
+}

@@ -12,10 +12,12 @@ import (
 	"github.com/fisaks/uhn/internal/catalog"
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/encrypt"
+	"github.com/fisaks/uhn/internal/ihc"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
 	"github.com/fisaks/uhn/internal/runtime"
+	"github.com/fisaks/uhn/internal/uhn"
 	"github.com/fisaks/uhn/internal/util"
 )
 
@@ -44,6 +46,7 @@ func main() {
 		"edge", resolvedConfig.Name,
 		"mqtt", resolvedConfig.MqttURL,
 		"buses", len(cfg.Buses),
+		"ihcControllers", len(cfg.IHCControllers),
 		"pollMs", cfg.PollIntervalMs,
 		"runtimeMode", resolvedConfig.RuntimeMode,
 		"debugPort", resolvedConfig.DebugPort,
@@ -101,6 +104,10 @@ func main() {
 		logicalResourceStatePublisher := runtime.NewLogicalResourceStatePublisher(edgeBroker, signalTracker)
 		ipcBridge.SetLogicalResourceStatePublisher(logicalResourceStatePublisher)
 
+		// Per-pin physical state MQTT: publish individual pin values (IHC, future drivers)
+		devicePinStatePublisher := runtime.NewDevicePinStatePublisher(edgeBroker)
+		ipcBridge.SetDevicePinStatePublisher(devicePinStatePublisher)
+
 		resourceCmdSub := runtime.NewResourceCmdSubscriber(ipcBridge, signalTracker)
 		edgeBroker.Subscribe(ctx, "resource/cmd/+", messaging.AtLeastOnce, resourceCmdSub)
 
@@ -121,12 +128,34 @@ func main() {
 			logging.Fatal("poller init", "error", err)
 		}
 
-		// Create and set action handler (needs pollers)
-		actionHandler := runtime.NewEdgeActionHandler(resolvedConfig.Name, pollers, edgeBroker, ipcBridge, signalTracker)
+		// Create IHC drivers if configured
+		drivers := make(map[string]uhn.DeviceDriver)
+		var ihcDrivers []*ihc.IHCDriver
+		for _, ihcCfg := range cfg.IHCControllers {
+			driver := ihc.NewIHCDriver(ihcCfg, ipcBridge)
+			drivers[ihcCfg.Name] = driver
+			ihcDrivers = append(ihcDrivers, driver)
+			logging.Info("IHC driver created",
+				"controller", ihcCfg.Name,
+				"host", ihcCfg.Host,
+				"resources", len(ihcCfg.Resources))
+		}
+
+		// Wire drivers into signal subscriber (IHC signal forwarding) and
+		// command subscriber (auto-pulse: tap → HandleSignal true→false)
+		if len(drivers) > 0 {
+			resourceSignalSub.SetDrivers(drivers)
+			resourceCmdSub.SetDrivers(drivers)
+		}
+
+		// Create and set action handler (needs pollers + drivers)
+		actionHandler := runtime.NewEdgeActionHandler(resolvedConfig.Name, pollers, drivers, edgeBroker, ipcBridge, signalTracker)
 		ipcBridge.SetActionHandler(actionHandler)
 
-		// Wrap pollers with system command handler so cmd topic reaches both
-		sysHandler := runtime.NewSystemCommandHandler(resolvedConfig, supervisor, edgeBroker, pollers)
+		// Wrap pollers: DeviceCommandHandler routes IHC device commands to drivers,
+		// then SystemCommandHandler intercepts system commands on top.
+		deviceCmdHandler := runtime.NewDeviceCommandHandler(drivers, ipcBridge, pollers)
+		sysHandler := runtime.NewSystemCommandHandler(resolvedConfig, supervisor, edgeBroker, deviceCmdHandler)
 		edgeBroker.AddOnConnectPublisher("system-config", sysHandler)
 		sysHandler.PublishConfig(ctx)
 
@@ -140,6 +169,13 @@ func main() {
 		if supervisor.HasActiveBlueprint() {
 			logging.Info("Found existing active blueprint, starting rule runtime")
 			supervisor.Start(ctx)
+		}
+
+		// Start IHC drivers after runtime is ready so initial state reaches the ResourceMap
+		for _, driver := range ihcDrivers {
+			d := driver // capture for goroutine
+			go d.Start(ctx)
+			defer d.Stop()
 		}
 	} else {
 		logging.Info("UHN_WORKSPACE_PATH or UHN_RUNTIME_PATH not set, blueprint downloader and rule runtime not activated")

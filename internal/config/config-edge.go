@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,41 @@ import (
 /* =========================
    Types (devices keyed by busId)
    ========================= */
+
+// IHC Controller types
+
+type IHCHealthCheckConfig struct {
+	Resources      []string `json:"resources"`
+	IntervalSec    int      `json:"intervalSec"`
+	MaxFailures    int      `json:"maxFailures,omitempty"` // consecutive failures before reconnect (0 = disable reconnect)
+}
+
+type IHCResourceConfig struct {
+	ResourceID    string `json:"resourceId"`
+	Type          string `json:"type"` // digitalOutput | digitalInput | analogOutput | analogInput
+	ResourceIntID int    `json:"-"`    // runtime only: integer form of ResourceID (hex string)
+}
+
+type IHCControllerConfig struct {
+	Name                 string                `json:"name"`
+	Host                 string                `json:"host"`
+	Port                 int                   `json:"port"`
+	WaitTimeoutSec       int                   `json:"waitTimeoutSec"`
+	MaxConsecutiveErrors int                   `json:"maxConsecutiveErrors"`
+	HealthCheck          *IHCHealthCheckConfig `json:"healthCheck,omitempty"`
+	Resources            []*IHCResourceConfig  `json:"resources"`
+
+	// Runtime only (loaded from credentials file)
+	Username string `json:"-"`
+	Password string `json:"-"`
+	// Runtime only: parsed health-check resource IDs
+	HealthCheckResourceIDs []int `json:"-"`
+}
+
+type ihcCredentialsFile map[string]struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
 
 type EdgeSettings struct {
 	Name        string `json:"name,omitempty"`
@@ -36,6 +72,10 @@ type EdgeConfig struct {
 	HeartbeatInterval int                           `json:"heartbeatInterval,omitempty"` // global heartbeat cadence
 	CommandBufferSize int                           `json:"commandBufferSize,omitempty"`
 	DevicesByName     map[string]*DeviceConfig      `json:"-"`                           // runtime only, built by linkGraph
+
+	// IHC controllers (optional, can coexist with Modbus)
+	IHCCredentialsFile string                 `json:"ihcCredentialsFile,omitempty"`
+	IHCControllers     []*IHCControllerConfig `json:"ihcControllers,omitempty"`
 }
 
 type BusConfig struct {
@@ -189,10 +229,17 @@ func (c *EdgeConfig) Validate() error {
 		c.CommandBufferSize = 64 // default buffer size
 	}
 
+	hasModbus := len(c.Buses) > 0 || len(c.Catalog) > 0 || len(c.Devices) > 0
+	hasIHC := len(c.IHCControllers) > 0
+
+	if !hasModbus && !hasIHC {
+		errs.add("at least one device source required (buses/catalog/devices for Modbus, or ihcControllers for IHC)")
+	}
+
 	/* Buses */
-	if len(c.Buses) == 0 {
-		errs.add("buses cannot be empty")
-	} else {
+	if len(c.Buses) == 0 && hasModbus && (len(c.Catalog) > 0 || len(c.Devices) > 0) {
+		errs.add("buses cannot be empty when catalog or devices are defined")
+	} else if len(c.Buses) > 0 {
 		seen := map[string]int{}
 		for i := range c.Buses {
 			b := c.Buses[i]
@@ -250,9 +297,9 @@ func (c *EdgeConfig) Validate() error {
 	}
 
 	/* Catalog */
-	if len(c.Catalog) == 0 {
-		errs.add("catalog cannot be empty")
-	} else {
+	if len(c.Catalog) == 0 && hasModbus && (len(c.Buses) > 0 || len(c.Devices) > 0) {
+		errs.add("catalog cannot be empty when buses or devices are defined")
+	} else if len(c.Catalog) > 0 {
 		for key, spec := range c.Catalog {
 			if spec.Vendor == "" || spec.Model == "" {
 				errs.addf("catalog[%s]: vendor and model are required", key)
@@ -301,9 +348,9 @@ func (c *EdgeConfig) Validate() error {
 	}
 
 	/* Devices (map keyed by busId) */
-	if len(c.Devices) == 0 {
-		errs.add("devices cannot be empty")
-	} else {
+	if len(c.Devices) == 0 && hasModbus && (len(c.Buses) > 0 || len(c.Catalog) > 0) {
+		errs.add("devices cannot be empty when buses or catalog are defined")
+	} else if len(c.Devices) > 0 {
 		// Known buses
 		busSet := map[string]struct{}{}
 		for _, b := range c.Buses {
@@ -346,20 +393,46 @@ func (c *EdgeConfig) Validate() error {
 		}
 	}
 
+	/* IHC Controllers */
+	if hasIHC {
+		c.validateIHC(&errs)
+	}
+
 	if len(errs) > 0 {
 		return errs
+	}
+
+	// Check for device name collisions between Modbus and IHC
+	if hasModbus && hasIHC {
+		modbusNames := map[string]bool{}
+		for _, devs := range c.Devices {
+			for _, d := range devs {
+				modbusNames[d.Name] = true
+			}
+		}
+		for _, ctrl := range c.IHCControllers {
+			if modbusNames[ctrl.Name] {
+				return fmt.Errorf("IHC controller name %q collides with a Modbus device name", ctrl.Name)
+			}
+		}
 	}
 
 	return c.linkGraph()
 }
 func (c *EdgeConfig) linkGraph() error {
+	c.DevicesByName = make(map[string]*DeviceConfig)
+
+	// Skip Modbus linking if no buses defined (IHC-only config)
+	if len(c.Buses) == 0 {
+		return nil
+	}
+
 	// Map for quick bus lookup
 	busMap := map[string]*BusConfig{}
 	for _, b := range c.Buses {
 		busMap[b.BusId] = b
 		b.Devices = nil // ensure empty
 	}
-	c.DevicesByName = make(map[string]*DeviceConfig)
 	// Link devices to catalog, and buses to devices
 	for busID, devs := range c.Devices {
 		bus, ok := busMap[busID]
@@ -380,6 +453,164 @@ func (c *EdgeConfig) linkGraph() error {
 		}
 	}
 	return nil
+}
+
+/* =========================
+   IHC validation + helpers
+   ========================= */
+
+var validIHCResourceTypes = map[string]bool{
+	"digitalOutput": true,
+	"digitalInput":  true,
+	"analogOutput":  true,
+	"analogInput":   true,
+}
+
+func (c *EdgeConfig) validateIHC(errs *multiErr) {
+	// Load credentials file if specified
+	var creds ihcCredentialsFile
+	if c.IHCCredentialsFile != "" {
+		var err error
+		creds, err = loadIHCCredentials(c.IHCCredentialsFile)
+		if err != nil {
+			errs.addf("ihcCredentialsFile: %v", err)
+			return
+		}
+	}
+
+	seenNames := map[string]bool{}
+	for i, ctrl := range c.IHCControllers {
+		prefix := fmt.Sprintf("ihcControllers[%d/%s]", i, ctrl.Name)
+
+		if strings.TrimSpace(ctrl.Name) == "" {
+			errs.addf("ihcControllers[%d]: name is required", i)
+		} else if seenNames[ctrl.Name] {
+			errs.addf("%s: duplicate controller name", prefix)
+		} else {
+			seenNames[ctrl.Name] = true
+		}
+
+		if strings.TrimSpace(ctrl.Host) == "" {
+			errs.addf("%s: host is required", prefix)
+		}
+		if ctrl.Port <= 0 {
+			ctrl.Port = 80
+		}
+		if ctrl.WaitTimeoutSec <= 0 {
+			ctrl.WaitTimeoutSec = 10
+		}
+		if ctrl.MaxConsecutiveErrors <= 0 {
+			ctrl.MaxConsecutiveErrors = 4
+		}
+
+		// Credentials
+		if creds == nil {
+			errs.addf("%s: ihcCredentialsFile is required when ihcControllers are defined", prefix)
+		} else if entry, ok := creds[ctrl.Name]; !ok {
+			errs.addf("%s: no credentials found in credentials file", prefix)
+		} else {
+			ctrl.Username = entry.Username
+			ctrl.Password = entry.Password
+			if ctrl.Username == "" || ctrl.Password == "" {
+				errs.addf("%s: username and password are required in credentials file", prefix)
+			}
+		}
+
+		// Resources
+		if len(ctrl.Resources) == 0 {
+			errs.addf("%s: resources cannot be empty", prefix)
+		}
+		seenIDs := map[int]bool{}
+		for j, res := range ctrl.Resources {
+			resPrefix := fmt.Sprintf("%s.resources[%d]", prefix, j)
+			if !validIHCResourceTypes[res.Type] {
+				errs.addf("%s: type must be digitalOutput|digitalInput|analogOutput|analogInput (got %q)", resPrefix, res.Type)
+			}
+			parsed, err := parseIHCResourceID(res.ResourceID)
+			if err != nil {
+				errs.addf("%s: invalid resourceId %q: %v", resPrefix, res.ResourceID, err)
+			} else {
+				if seenIDs[parsed] {
+					errs.addf("%s: duplicate resourceId 0x%X", resPrefix, parsed)
+				}
+				seenIDs[parsed] = true
+				res.ResourceIntID = parsed
+			}
+		}
+
+		// Health check
+		if ctrl.HealthCheck != nil {
+			if len(ctrl.HealthCheck.Resources) == 0 {
+				errs.addf("%s.healthCheck: resources cannot be empty", prefix)
+			}
+			if ctrl.HealthCheck.IntervalSec <= 0 {
+				ctrl.HealthCheck.IntervalSec = 60
+			}
+			for j, raw := range ctrl.HealthCheck.Resources {
+				parsed, err := parseIHCResourceID(raw)
+				if err != nil {
+					errs.addf("%s.healthCheck.resources[%d]: invalid resourceId %q: %v", prefix, j, raw, err)
+				} else {
+					ctrl.HealthCheckResourceIDs = append(ctrl.HealthCheckResourceIDs, parsed)
+				}
+			}
+		}
+
+		c.IHCControllers[i] = ctrl
+	}
+}
+
+// parseIHCResourceID parses a resource ID from hex string ("0x9F1F3E", "_0x9F1F3E") or integer.
+func parseIHCResourceID(raw string) (int, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0, fmt.Errorf("empty resource ID")
+	}
+	// Strip leading underscore (IHC project file format)
+	s = strings.TrimPrefix(s, "_")
+
+	// Hex format: 0x... or 0X...
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		v, err := strconv.ParseInt(s[2:], 16, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid hex: %w", err)
+		}
+		return int(v), nil
+	}
+
+	// Plain integer
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer: %w", err)
+	}
+	return v, nil
+}
+
+// FormatHexID formats a device address/resource ID as hex for logging/display.
+func FormatHexID(id int) string {
+	return fmt.Sprintf("0x%X", id)
+}
+
+// FormatPin formats a pin/address as "decimal (0xHEX)" for logging.
+// Shows both formats so logs are readable for both Modbus (small ints) and IHC (hex IDs).
+func FormatPin(id int) string {
+	return fmt.Sprintf("%d (0x%X)", id, id)
+}
+
+func loadIHCCredentials(path string) (ihcCredentialsFile, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open credentials file: %w", err)
+	}
+	defer f.Close()
+
+	var creds ihcCredentialsFile
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&creds); err != nil {
+		return nil, fmt.Errorf("parse credentials file: %w", err)
+	}
+	return creds, nil
 }
 
 // small multi-error
