@@ -198,6 +198,11 @@ When a user taps or long-presses a button in the UI (InteractionView), the syste
 
 The master uses the `bypassSignalState` flag from the edge catalog to decide the routing strategy. The edge uses its local `DeviceDriver` registry for the same purpose.
 
+For long press, the view's `longPress` command has an optional **`simulateHold`** flag (default `false`). This controls whether the long press is simulated as a physical hold (state cycle through `InputGestureEmitter`) or forwarded as a direct `longPressCommand` to the rule runtime:
+
+- **`simulateHold: false`** (default) — `longPressCommand` forwarded to both edge and master runtimes. Rules see a single `longPress` event instantly. No activated/deactivated cycle.
+- **`simulateHold: true`** — synthetic hold for thresholdMs+buffer, producing `activated, longPress, deactivated` through `InputGestureEmitter`. Matches real physical button behavior exactly.
+
 **Key constants:**
 - `PRESS_DURATION_MS = 50` — delay between synthetic activate and deactivate for tap
 - `LONG_PRESS_BUFFER_MS = 100` — extra ms added to longPress thresholdMs so the runtime's `setTimeout` fires before the synthetic release
@@ -219,11 +224,23 @@ For `complex` / `virtualDigitalInput`: `InputGestureEmitter` ignores them — ex
 
 ### Long Press from View
 
+#### Default (`simulateHold: false`)
+
+| Resource type | Device | Edge runtime events | Master runtime events | Mechanism |
+|---|---|---|---|---|
+| any | any | longPress only | longPress only | Explicit `longPressCommand` forwarded to both runtimes — no activated/deactivated/stateChange events |
+
+This is the simple path: master sends `longPressCommand` to both edge and master runtimes. Rules that use `.onLongPress()` fire immediately. No state cycle, no `InputGestureEmitter` involvement.
+
+#### With `simulateHold: true`
+
 | Resource type | Device | Edge runtime events | Master runtime events | Mechanism |
 |---|---|---|---|---|
 | `digitalInput` (push) | IHC | activated, longPress, deactivated | activated, longPress, deactivated | Edge holds driver signal for thresholdMs+buffer → physical state round-trip back to edge and master |
 | `digitalInput` (push) | Modbus | activated, longPress, deactivated | activated, longPress, deactivated | Both inject synthetic stateUpdate with timed delay |
-| Other types | any | longPress only | longPress only | Explicit `longPressCommand` forwarded only — no activated/deactivated/stateChange events |
+| Other types | any | longPress only | longPress only | Falls back to `longPressCommand` (simulateHold ignored for non-digitalInput) |
+
+Use `simulateHold` when the rule needs the full `activated → longPress → deactivated` state cycle — for example, when the same rule handles both physical buttons and UI buttons and relies on `InputGestureEmitter` timing. Trade-off: `simulateHold` introduces a delay (thresholdMs + 100ms buffer) between the UI press and the rule executing, since the runtime must wait for the hold timer to expire before emitting the `longPress` event.
 
 ### Detailed flow: `digitalInput` tap
 
@@ -251,17 +268,26 @@ UI Tap → WebSocket → Master CommandsResourceService.handleDigitalInput()
 ### Detailed flow: `digitalInput` longPress
 
 ```
-UI LongPress → WebSocket → Master CommandsResourceService.handleDigitalInput()
+UI LongPress → WebSocket → Master CommandsResourceService
+
+simulateHold = false (default):
+  ├→ resource/cmd/{id} {action: "longPress", durationMs} → Edge
+  │   └→ forwardLongPressCommand → runtime longPress event
+  └→ Master runtime: longPressCommand → longPress event
+  (Both runtimes see longPress instantly, no state cycle)
+
+simulateHold = true:
   │
   ├─ bypassSignalState = true (IHC):
-  │   └→ resource/cmd/{id} {action: "longPress", durationMs} → Edge
+  │   └→ resource/cmd/{id} {action: "longPress", durationMs, simulateHold: true} → Edge
   │       └→ holdDriverSignal: HandleSignal(true), wait thresholdMs+100ms, HandleSignal(false)
   │           └→ Physical round-trip → activated, longPress, deactivated (both runtimes)
+  │   (Master does NOT inject synthetic state — physical round-trip handles both sides)
   │
   └─ bypassSignalState = false (Modbus):
       ├→ Master: inject stateUpdate(true), wait thresholdMs+100ms, stateUpdate(false)
       │   └→ InputGestureEmitter → activated, longPress, deactivated
-      └→ resource/cmd/{id} → Edge
+      └→ resource/cmd/{id} {simulateHold: true} → Edge
           └→ inject stateUpdate(true), wait thresholdMs+100ms, stateUpdate(false)
               └→ InputGestureEmitter → activated, longPress, deactivated
 ```

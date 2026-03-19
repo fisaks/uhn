@@ -13,8 +13,11 @@ UHN (Unified Home Network) is a distributed home automation platform written in 
 make install-tools
 
 # Start dev tmux session (mosquitto in Docker, edge locally with air live-reload)
-make dev
-make dev-stop
+# Profile-based: dev (default, all simulators), live (real hardware)
+./devserver.sh start             # dev profile (default)
+./devserver.sh live start        # live profile — real hardware
+./devserver.sh live debug        # live profile with dlv debugger
+./devserver.sh live stop         # stop live session
 
 # Docker environments
 make docker-dev          # Edge + RTU simulator + mosquitto
@@ -48,7 +51,9 @@ The main entry point. On startup it: loads config from JSON, generates/loads an 
 - **state** — `EdgeStateStore` tracks last-published device state with byte-level change detection and heartbeat timestamps (thread-safe via RWMutex).
 - **catalog** — Builds and publishes retained MQTT device inventory messages.
 - **encrypt** — Ed25519 keypair generation/storage for edge authentication.
-- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`).
+- **ihc** — IHC SOAP client (`soap_client.go`) and driver (`ihc_driver.go`). Handles authentication, resource subscription, long-poll notifications, and exponential backoff reconnection. Implements `DeviceDriver` interface with `BypassSignalState() = true`.
+- **ihcsim** — IHC SOAP simulator for local development. Full SOAP protocol (auth, subscribe, long-poll notifications, setValue) + REST control plane (port 8090) for testing. Includes reactive bindings system (trigger input → toggle output). Entry point: `cmd/tools/ihc-sim/main.go`.
+- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`). `DeviceDriver` interface allows vendor-specific drivers (IHC, future Zigbee) to manage their own state loops.
 
 ### Sandbox System (`cmd/tools/sandbox-*`, `docs/sandbox.md`)
 
@@ -58,9 +63,27 @@ Four-tier isolation for user rules: launcher → setup (runs as root, sets up na
 
 - `uhn/{edgeName}/catalog` — Device inventory (retained)
 - `uhn/{edgeName}/identity` — Edge public key
-- `uhn/{edgeName}/device/{deviceName}/state` — Device state updates
+- `uhn/{edgeName}/device/{deviceName}/state` — Device state updates (Modbus byte arrays)
+- `uhn/{edgeName}/device/{deviceName}/pin/{hexPin}` — Per-pin state (IHC)
 - `uhn/{edgeName}/device/{deviceName}/cmd` — Device commands
+- `uhn/{edgeName}/resource/state/{resourceId}` — Logical resource state (timers, virtual)
+- `uhn/{edgeName}/resource/signal/{resourceId}` — Signal overrides from master
+- `uhn/{edgeName}/resource/cmd/{resourceId}` — View commands (tap, longPress, setState)
 - `uhn/{edgeName}/status` — Edge status
+
+See `docs/mqtt-state-flow.md` for the full topic reference and state flow documentation.
+
+### Development Profiles
+
+`devserver.sh` supports profiles for switching between simulator and real hardware environments. Each profile uses two files:
+- `config/edge-config-{profile}.json` — edge configuration
+- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`)
+
+The tmux session (`uhn-{profile}`) has two windows:
+- **dev** — MQTT monitor, Mosquitto logs, edge server, empty shell
+- **sims** — Modbus simulator (left), IHC simulator (right)
+
+Mixed configurations are supported (e.g., `MODBUS_SIM=true` + `IHC_SIM=false` for real IHC with simulated Modbus).
 
 ### Integration Tests (`tests/`)
 
