@@ -113,6 +113,7 @@ func (t *MilightTransport) runLoop(ctx context.Context) error {
 		case cmd := <-t.cmdCh:
 			// Check gatekeeper BEFORE rate-limit sleep — dropped commands skip the delay
 			if !t.checkGatekeeper(cmd) {
+				t.reconfirmState(ctx, cmd)
 				continue
 			}
 
@@ -187,6 +188,19 @@ func (t *MilightTransport) drainCmdChannel() {
 			return
 		}
 	}
+}
+
+// reconfirmState re-publishes the current physical state for a dropped command's
+// pin with a fresh timestamp. This ensures the edge local state is refreshed and
+// (via MQTT) tells the master the old value is still current — allowing the UI's
+// optimistic update to snap back to the real value.
+func (t *MilightTransport) reconfirmState(ctx context.Context, cmd transportCommand) {
+	val, found := t.stateReader.ReadPhysicalStateByAddress(cmd.device, cmd.resType, cmd.pin)
+	if !found {
+		return // no prior state to reconfirm
+	}
+	now := time.Now().UnixMilli()
+	t.state.UpdatePhysicalStateByAddress(ctx, cmd.device, cmd.resType, cmd.pin, val, now)
 }
 
 // checkGatekeeper returns true if the command should proceed, false if suppressed.
