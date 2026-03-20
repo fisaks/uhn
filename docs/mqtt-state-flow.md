@@ -117,7 +117,8 @@ Blueprint Rule / View Command
   → MilightTransport.enqueue()
   → runLoop dequeues command
   → checkGatekeeper(zone)                        [reads PhysicalStateReader cache]
-    ├→ Gatekeeper OFF → drop command silently (no assumed state, no rate-limit sleep)
+    ├→ Gatekeeper OFF → reconfirm current physical state (re-publish P with new timestamp)
+    │   └→ UI receives same value with updated timestamp → optimistic slider/state snaps back
     └→ Gatekeeper ON / unknown / no gatekeeper → proceed
   → UDPClient.SendCommand() → ACK (0x88)
   → IPCBridge.UpdatePhysicalStateByAddress()    [assumed P]
