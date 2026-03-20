@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/milight-sim ./cmd/tools/milight-sim"
+bin = "tmp/milight-sim"
+
+include_ext = ["go","json"]
+include_dir = ["cmd/tools/milight-sim", "internal/milightsim", "internal/milight", "internal/config", "config"]
+exclude_dir = ["tmp", "vendor"]

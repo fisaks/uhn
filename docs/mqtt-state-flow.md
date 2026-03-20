@@ -106,6 +106,48 @@ The topic uses hex (`0x9F085E`) for readability (matches IHC Visual project file
 
 Both Modbus and IHC paths converge to the same `updatePhysicalState(resourceId, value, timestamp)` on the master. The master resolves physical addresses to resource IDs via `makeAddressKey()` — the physical layer never needs to know about blueprint resource names.
 
+## Physical State: Mi-Light Flow (Assumed State)
+
+Mi-Light devices use iBox2 UDP v6 protocol — **one-way commands with ACK but no state feedback**. The edge publishes **assumed state**: after a successful command+ACK, the commanded value is published as P via `UpdatePhysicalStateByAddress()`.
+
+```
+Blueprint Rule / View Command
+  → MilightDriver.SetOutput(pin, value)
+  → buildCommands() → []transportCommand (one or more [9]byte UDP commands)
+  → MilightTransport.enqueue()
+  → UDPClient.SendCommand() → ACK (0x88)
+  → IPCBridge.UpdatePhysicalStateByAddress()    [assumed P]
+    ├→ DevicePinStatePublisher                   [MQTT: device/{name}/pin/{pin}]
+    │   └→ Master: same path as IHC per-pin
+    └→ ResourceMap lookup → updatePhysicalState() [edge local: P/S/C]
+  → publish sideEffects (e.g. power off resets night mode state)
+```
+
+**Key differences from IHC/Modbus:**
+- **No independent state source** — state is only updated when we send a command. No polling, no notification loop.
+- **`assumedState: true`** in catalog — UI can indicate that displayed state is "best guess" rather than confirmed hardware state.
+- **`BypassSignalState() = true`** — signals forwarded to driver → UDP command → assumed P published. Without this, S would stick forever since there's no independent P update to clear it.
+- **No state on startup** — state is unknown until the first command. Stale assumptions are not published.
+- **Per-bridge command queue** — iBox2 requires minimum 100ms between UDP sends. All zones on one bridge share a serialized queue.
+- **Health via ACK** — UDP v6 acknowledges every command (0x88). No ACK after retries = bridge down → reconnect with exponential backoff.
+- **Side effects** — some commands affect other pins' assumed state (e.g. power off resets night mode to false).
+
+**Resource mapping** (FUT069 example, per zone e.g. `device/milight-toilet`):
+| Pin | Type | Value | Description |
+|-----|------|-------|-------------|
+| 0 | digitalOutput | bool | Power on/off |
+| 1 | digitalOutput | bool | Night mode (on = enter, off = power cycle exit) |
+| 2 | digitalInput (push) | bool | White mode (fire-and-forget) |
+| 3 | digitalInput (push) | bool | Speed up (fire-and-forget) |
+| 4 | digitalInput (push) | bool | Speed down (fire-and-forget) |
+| 5 | analogOutput | 0–100 | Brightness (%) |
+| 6 | analogOutput | 0–100 | Color temperature (warm→cool) |
+| 7 | analogOutput | 0–255 | Hue — enters color mode |
+| 8 | analogOutput | 0–100 | Saturation (%) |
+| 9 | analogOutput | 1–9 | Effect mode |
+
+Pin layout is fixed per model (configured via `model` field in zone config).
+
 ## Logical Resource State
 
 Logical resources (timers, complex, virtualDigitalInput, virtualAnalogOutput) bypass the P/S/C model entirely. Their state is authoritative — no signal override.
@@ -332,7 +374,7 @@ The master determines device capabilities from the edge catalog:
 
 ## Adding a New Driver
 
-When adding a new hardware protocol (e.g., Zigbee, Mi Light):
+When adding a new hardware protocol (e.g., Zigbee, Z-Wave):
 
 1. Implement `DeviceDriver` interface (HandleSignal, SetOutput, BypassSignalState)
 2. Call `IPCBridge.UpdatePhysicalStateByAddress(ctx, device, type, pin, value, timestamp)` for state updates

@@ -136,7 +136,7 @@ or just `make install-tools`
 
 Starts the development server in a tmux session with two windows:
 - **dev** — MQTT monitor, Mosquitto logs, edge server, empty shell
-- **sims** — Modbus simulator (left), IHC simulator (right)
+- **sims** — Modbus simulator, IHC simulator, Mi-Light simulator
 
 ### Profiles
 
@@ -149,7 +149,7 @@ Starts the development server in a tmux session with two windows:
 
 Each profile uses two files:
 - `config/edge-config-{profile}.json` — edge configuration
-- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`)
+- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`, `MILIGHT_SIM`)
 
 The `dev` profile runs all simulators. The `live` profile can be customized per-flag, e.g. `MODBUS_SIM=true` + `IHC_SIM=false` for real IHC with simulated Modbus.
 
@@ -322,6 +322,47 @@ curl -s -X POST http://localhost:8090/bindings \
 # Remove a binding
 curl -s -X DELETE http://localhost:8090/bindings/b1
 ```
+
+### Mi-Light Simulator (UDP on port 5987, REST on port 8091)
+
+Simulates a Mi-Light iBox2 WiFi bridge with UDP v6 protocol support. The edge connects to it like a real iBox2 — handshake, commands, and ACK responses all work.
+
+Zones are initialized from `milights[].zones` in the edge config.
+
+#### REST control plane
+
+```sh
+# List all zones with current state
+curl -s http://localhost:8091/zones
+
+# Get a single zone
+curl -s http://localhost:8091/zone/4
+
+# Set zone state (partial update)
+curl -s -X PUT http://localhost:8091/zone/4 \
+  -H 'Content-Type: application/json' -d '{"brightness": 80, "colorTemp": 50}'
+
+# Toggle power
+curl -s -X POST http://localhost:8091/zone/4/toggle
+
+# Admin: stop/start UDP server (outage simulation)
+curl -s http://localhost:8091/admin/status
+curl -s -X POST http://localhost:8091/admin/stop
+curl -s -X POST http://localhost:8091/admin/start
+```
+
+#### Settable zone fields
+
+| Field | Type | Range | Description |
+|-------|------|-------|-------------|
+| `power` | bool | | Power on/off |
+| `brightness` | int | 0-100 | Brightness % |
+| `colorTemp` | int | 0-100 | Color temperature (0=warm, 100=cool) |
+| `hue` | int | 0-255 | Hue value |
+| `saturation` | int | 0-100 | Saturation (protocol: 0=vivid, 100=white) |
+| `mode` | int | 1-9 | Effect mode |
+| `modeSpeedUp` | bool | | Increment effect speed (set to true) |
+| `modeSpeedDown` | bool | | Decrement effect speed (set to true) |
 
 ## Navigating the tmux Environment
 

@@ -43,7 +43,7 @@ start_dev_env() {
     echo "Starting development environment: profile=$profile, session=$SESSION"
     echo "  Config: $CONFIG_FILE"
     echo "  Env:    $ENV_FILE"
-    echo "  MODBUS_SIM=$MODBUS_SIM, IHC_SIM=$IHC_SIM"
+    echo "  MODBUS_SIM=$MODBUS_SIM, IHC_SIM=$IHC_SIM, MILIGHT_SIM=$MILIGHT_SIM"
 
     if [[ "$debug" == "true" ]]; then
         echo "  Mode: debug hot reload"
@@ -192,6 +192,14 @@ start_dev_env() {
         tmux send-keys -t $SESSION:sims.1 "cd $WORKDIR && air -c .air-ihc-sim.toml" C-m
     else
         tmux send-keys -t $SESSION:sims.1 "echo 'IHC sim disabled for profile: ${profile}'" C-m
+    fi
+
+    # Bottom pane: Mi-Light simulator
+    tmux split-window -v -t $SESSION:sims.1
+    if [[ "$MILIGHT_SIM" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.2 "cd $WORKDIR && air -c .air-milight-sim.toml" C-m
+    else
+        tmux send-keys -t $SESSION:sims.2 "echo 'Mi-Light sim disabled for profile: ${profile}'" C-m
     fi
 
     # Focus back to dev window

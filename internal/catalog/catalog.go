@@ -25,6 +25,7 @@ type DeviceSummary struct {
 	Type              string             `json:"type"`
 	BusId             string             `json:"busId,omitempty"`
 	BypassSignalState bool               `json:"bypassSignalState,omitempty"`
+	AssumedState      bool               `json:"assumedState,omitempty"`
 	Resources         []CatalogResource  `json:"resources,omitempty"`
 	DigitalOutputs    *config.Range      `json:"digitalOutputs,omitempty"`
 	DigitalInputs     *config.Range      `json:"digitalInputs,omitempty"`
@@ -76,6 +77,21 @@ func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 			BypassSignalState: true,
 			Resources:         resources,
 		})
+	}
+
+	// Include Mi-Light zones as devices with assumed state.
+	for _, ml := range catalog.cfg.Milights {
+		for _, zone := range ml.Zones {
+			devices = append(devices, DeviceSummary{
+				Name:              zone.Name,
+				Type:              "milight-" + zone.Model,
+				BypassSignalState: true,
+				AssumedState:      true,
+				DigitalOutputs:    &config.Range{Start: 0, Count: 2},
+				DigitalInputs:     &config.Range{Start: 2, Count: 3},
+				AnalogOutputs:     &config.Range{Start: 5, Count: 5},
+			})
+		}
 	}
 
 	return &EdgeCatalogMessage{Devices: devices}

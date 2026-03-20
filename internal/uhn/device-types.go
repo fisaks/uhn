@@ -61,10 +61,21 @@ type StateUpdater interface {
 	UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64)
 }
 
+// DeviceTransport manages the connection lifecycle for a hardware transport layer.
+// One transport may serve multiple DeviceDrivers (e.g. Mi-Light iBox2 serves
+// multiple zones, a Modbus serial bus serves multiple slave devices).
+// For 1:1 topologies (e.g. IHC), the transport and driver may be backed by the
+// same struct.
+type DeviceTransport interface {
+	// Start begins the transport lifecycle. Blocks until ctx is cancelled.
+	Start(ctx context.Context)
+	// Stop signals the transport to shut down and waits for completion.
+	Stop()
+}
+
 // DeviceDriver is the generic driver interface for protocol-agnostic device
 // interaction. The action handler dispatches through this interface instead of
-// branching on protocol type. IHC implements it; future Zigbee/Mi Light drivers
-// will too.
+// branching on protocol type.
 type DeviceDriver interface {
 	// HandleSignal forwards a signal to the physical device.
 	HandleSignal(ctx context.Context, resourceID int, value any) error

@@ -47,4 +47,6 @@ config/edge-config-live.json
 config/devserver-live.conf
 /ihc-sim
 /mb-sim
+/milight-sim
+/edge
 .pytest_cache/

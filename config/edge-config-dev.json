@@ -273,6 +273,15 @@
             ]
         }
     ],
+    "milights": [
+        {
+            "host": "localhost",
+            "port": 5987,
+            "zones": [
+                { "name": "milight-toilet", "zone": 4, "model": "fut069" }
+            ]
+        }
+    ],
     "heartbeatInterval": 600,
     "pollIntervalMs": 500
 }

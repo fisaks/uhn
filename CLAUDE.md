@@ -53,7 +53,9 @@ The main entry point. On startup it: loads config from JSON, generates/loads an 
 - **encrypt** — Ed25519 keypair generation/storage for edge authentication.
 - **ihc** — IHC SOAP client (`soap_client.go`) and driver (`ihc_driver.go`). Handles authentication, resource subscription, long-poll notifications, and exponential backoff reconnection. Implements `DeviceDriver` interface with `BypassSignalState() = true`.
 - **ihcsim** — IHC SOAP simulator for local development. Full SOAP protocol (auth, subscribe, long-poll notifications, setValue) + REST control plane (port 8090) for testing. Includes reactive bindings system (trigger input → toggle output). Entry point: `cmd/tools/ihc-sim/main.go`.
-- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`). `DeviceDriver` interface allows vendor-specific drivers (IHC, future Zigbee) to manage their own state loops.
+- **milight** — Mi-Light iBox2 driver. Transport (`milight_transport.go`) manages UDP v6 connection, per-bridge command queue with rate limiting (100ms between sends), and assumed state publishing. Driver (`milight_driver.go`) maps pins to FUT069 RGB+CCT commands. Implements `DeviceTransport` + `DeviceDriver` with `BypassSignalState() = true`.
+- **milightsim** — Mi-Light UDP simulator for local development. Receives v6 packets (handshake, commands), sends ACK responses, tracks per-zone state (power, brightness, CCT, hue, saturation, mode). REST control plane on port 8091. Entry point: `cmd/tools/milight-sim/main.go`.
+- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`, `DeviceTransport`, `DeviceDriver`). `DeviceTransport` manages connection lifecycle; `DeviceDriver` handles protocol-agnostic device interaction.
 
 ### Sandbox System (`cmd/tools/sandbox-*`, `docs/sandbox.md`)
 

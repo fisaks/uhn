@@ -89,6 +89,11 @@ func ToInt(v any) int {
 	return 0
 }
 
+// Clamp restricts v to [lo, hi].
+func Clamp(v, lo, hi int) int {
+	return max(lo, min(v, hi))
+}
+
 func SplitHostAndPort(hostPort string, defaultAddr string) (address, host string, port int, err error) {
 	addr := hostPort
 	if addr == "" {

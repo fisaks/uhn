@@ -63,6 +63,28 @@ type EdgeSettings struct {
 	LogFormat   string `json:"logFormat,omitempty"`    // "json" (default) or "text"
 }
 
+// Mi-Light types
+
+type MilightZoneConfig struct {
+	Name  string `json:"name"`  // device name (e.g. "milight-z1")
+	Zone  byte   `json:"zone"`  // 1-4
+	Model string `json:"model"` // bulb model (e.g. "fut069")
+}
+
+// Supported Mi-Light bulb models.
+var milightSupportedModels = map[string]bool{
+	"fut069": true,
+}
+
+type MilightConfig struct {
+	Host             string               `json:"host"`
+	Port             int                  `json:"port"`              // default 5987
+	Zones            []*MilightZoneConfig `json:"zones"`
+	CommandDelayMs   int                  `json:"commandDelayMs"`    // default 100
+	CommandRetries   int                  `json:"commandRetries"`    // default 1
+	CommandTimeoutMs int                  `json:"commandTimeoutMs"`  // default 500
+}
+
 type EdgeConfig struct {
 	Edge              *EdgeSettings                 `json:"edge,omitempty"`
 	Buses             []*BusConfig                  `json:"buses"`
@@ -76,6 +98,9 @@ type EdgeConfig struct {
 	// IHC controllers (optional, can coexist with Modbus)
 	IHCCredentialsFile string                 `json:"ihcCredentialsFile,omitempty"`
 	IHCControllers     []*IHCControllerConfig `json:"ihcControllers,omitempty"`
+
+	// Mi-Light gateways (optional, can coexist with Modbus and IHC)
+	Milights []*MilightConfig `json:"milights,omitempty"`
 }
 
 type BusConfig struct {
@@ -231,9 +256,10 @@ func (c *EdgeConfig) Validate() error {
 
 	hasModbus := len(c.Buses) > 0 || len(c.Catalog) > 0 || len(c.Devices) > 0
 	hasIHC := len(c.IHCControllers) > 0
+	hasMilight := len(c.Milights) > 0
 
-	if !hasModbus && !hasIHC {
-		errs.add("at least one device source required (buses/catalog/devices for Modbus, or ihcControllers for IHC)")
+	if !hasModbus && !hasIHC && !hasMilight {
+		errs.add("at least one device source required (buses/catalog/devices for Modbus, ihcControllers for IHC, or milights for Mi-Light)")
 	}
 
 	/* Buses */
@@ -398,22 +424,34 @@ func (c *EdgeConfig) Validate() error {
 		c.validateIHC(&errs)
 	}
 
+	/* Mi-Light Bridges */
+	if hasMilight {
+		c.validateMilight(&errs)
+	}
+
 	if len(errs) > 0 {
 		return errs
 	}
 
-	// Check for device name collisions between Modbus and IHC
-	if hasModbus && hasIHC {
-		modbusNames := map[string]bool{}
-		for _, devs := range c.Devices {
-			for _, d := range devs {
-				modbusNames[d.Name] = true
-			}
+	// Check for device name collisions across all device sources
+	allNames := map[string]string{} // name -> source label
+	for _, devs := range c.Devices {
+		for _, d := range devs {
+			allNames[d.Name] = "Modbus"
 		}
-		for _, ctrl := range c.IHCControllers {
-			if modbusNames[ctrl.Name] {
-				return fmt.Errorf("IHC controller name %q collides with a Modbus device name", ctrl.Name)
+	}
+	for _, ctrl := range c.IHCControllers {
+		if src, ok := allNames[ctrl.Name]; ok {
+			return fmt.Errorf("IHC controller name %q collides with a %s device name", ctrl.Name, src)
+		}
+		allNames[ctrl.Name] = "IHC"
+	}
+	for _, ml := range c.Milights {
+		for _, zone := range ml.Zones {
+			if src, ok := allNames[zone.Name]; ok {
+				return fmt.Errorf("Mi-Light zone name %q collides with a %s device name", zone.Name, src)
 			}
+			allNames[zone.Name] = "Mi-Light"
 		}
 	}
 
@@ -611,6 +649,64 @@ func loadIHCCredentials(path string) (ihcCredentialsFile, error) {
 		return nil, fmt.Errorf("parse credentials file: %w", err)
 	}
 	return creds, nil
+}
+
+/* =========================
+   Mi-Light validation
+   ========================= */
+
+func (c *EdgeConfig) validateMilight(errs *multiErr) {
+	seenZoneNames := map[string]bool{}
+	for i, ml := range c.Milights {
+		prefix := fmt.Sprintf("milights[%d]", i)
+
+		if strings.TrimSpace(ml.Host) == "" {
+			errs.addf("%s: host is required", prefix)
+		}
+		if ml.Port <= 0 {
+			ml.Port = 5987
+		}
+		if ml.CommandDelayMs <= 0 {
+			ml.CommandDelayMs = 100
+		}
+		if ml.CommandRetries <= 0 {
+			ml.CommandRetries = 1
+		}
+		if ml.CommandTimeoutMs <= 0 {
+			ml.CommandTimeoutMs = 500
+		}
+
+		if len(ml.Zones) == 0 {
+			errs.addf("%s: zones cannot be empty", prefix)
+		}
+
+		seenZones := map[byte]bool{}
+		for j, zone := range ml.Zones {
+			zPrefix := fmt.Sprintf("%s.zones[%d]", prefix, j)
+
+			if strings.TrimSpace(zone.Name) == "" {
+				errs.addf("%s: name is required", zPrefix)
+			} else if seenZoneNames[zone.Name] {
+				errs.addf("%s: duplicate zone name %q", zPrefix, zone.Name)
+			} else {
+				seenZoneNames[zone.Name] = true
+			}
+
+			if seenZones[zone.Zone] {
+				errs.addf("%s: duplicate zone number %d within gateway", zPrefix, zone.Zone)
+			} else {
+				seenZones[zone.Zone] = true
+			}
+
+			if zone.Model == "" {
+				errs.addf("%s: model is required", zPrefix)
+			} else if !milightSupportedModels[zone.Model] {
+				errs.addf("%s: unsupported model %q", zPrefix, zone.Model)
+			}
+		}
+
+		c.Milights[i] = ml
+	}
 }
 
 // small multi-error

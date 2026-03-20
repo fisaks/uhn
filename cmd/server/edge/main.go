@@ -14,6 +14,7 @@ import (
 	"github.com/fisaks/uhn/internal/encrypt"
 	"github.com/fisaks/uhn/internal/ihc"
 	"github.com/fisaks/uhn/internal/logging"
+	"github.com/fisaks/uhn/internal/milight"
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
 	"github.com/fisaks/uhn/internal/runtime"
@@ -47,6 +48,7 @@ func main() {
 		"mqtt", resolvedConfig.MqttURL,
 		"buses", len(cfg.Buses),
 		"ihcControllers", len(cfg.IHCControllers),
+		"milights", len(cfg.Milights),
 		"pollMs", cfg.PollIntervalMs,
 		"runtimeMode", resolvedConfig.RuntimeMode,
 		"debugPort", resolvedConfig.DebugPort,
@@ -141,6 +143,21 @@ func main() {
 				"resources", len(ihcCfg.Resources))
 		}
 
+		// Create Mi-Light transports and zone drivers
+		var milightTransports []*milight.MilightTransport
+		for _, mlCfg := range cfg.Milights {
+			transport := milight.NewMilightTransport(mlCfg, ipcBridge)
+			milightTransports = append(milightTransports, transport)
+			for _, zoneCfg := range mlCfg.Zones {
+				driver := milight.NewMilightDriver(transport, zoneCfg)
+				drivers[zoneCfg.Name] = driver
+				logging.Info("Mi-Light driver created",
+					"zone", zoneCfg.Name,
+					"zoneNum", zoneCfg.Zone,
+					"host", mlCfg.Host)
+			}
+		}
+
 		// Wire drivers into signal subscriber (IHC signal forwarding) and
 		// command subscriber (auto-pulse: tap → HandleSignal true→false)
 		if len(drivers) > 0 {
@@ -176,6 +193,13 @@ func main() {
 			d := driver // capture for goroutine
 			go d.Start(ctx)
 			defer d.Stop()
+		}
+
+		// Start Mi-Light transports (no state on startup — assumed state begins on first command)
+		for _, tr := range milightTransports {
+			t := tr
+			go t.Start(ctx)
+			defer t.Stop()
 		}
 	} else {
 		logging.Info("UHN_WORKSPACE_PATH or UHN_RUNTIME_PATH not set, blueprint downloader and rule runtime not activated")
