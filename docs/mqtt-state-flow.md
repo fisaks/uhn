@@ -115,6 +115,10 @@ Blueprint Rule / View Command
   → MilightDriver.SetOutput(pin, value)
   → buildCommands() → []transportCommand (one or more [9]byte UDP commands)
   → MilightTransport.enqueue()
+  → runLoop dequeues command
+  → checkGatekeeper(zone)                        [reads PhysicalStateReader cache]
+    ├→ Gatekeeper OFF → drop command silently (no assumed state, no rate-limit sleep)
+    └→ Gatekeeper ON / unknown / no gatekeeper → proceed
   → UDPClient.SendCommand() → ACK (0x88)
   → IPCBridge.UpdatePhysicalStateByAddress()    [assumed P]
     ├→ DevicePinStatePublisher                   [MQTT: device/{name}/pin/{pin}]

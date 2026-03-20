@@ -28,13 +28,25 @@ type transportCommand struct {
 	sideEffects []sideEffect // additional state updates after command succeeds
 }
 
+// gatekeeperEntry holds the address of the gatekeeper resource for one Mi-Light zone.
+type gatekeeperEntry struct {
+	device  string
+	resType string
+	pin     int
+}
+
 // MilightTransport manages the iBox2 UDP connection and serializes commands
 // across all zones on the bridge. One transport per iBox2.
 // Implements uhn.DeviceTransport.
 type MilightTransport struct {
-	cfg    *config.MilightConfig
-	client *UDPClient
-	state  uhn.StateUpdater
+	cfg         *config.MilightConfig
+	client      *UDPClient
+	state       uhn.StateUpdater
+	stateReader uhn.PhysicalStateReader
+
+	// gatekeepers maps zone number → gatekeeper entry (only for zones with gatekeeper config).
+	// Written once at construction, read in runLoop (single goroutine) — no mutex needed.
+	gatekeepers map[byte]*gatekeeperEntry
 
 	cmdCh  chan transportCommand
 	cancel context.CancelFunc
@@ -42,13 +54,25 @@ type MilightTransport struct {
 }
 
 // NewMilightTransport creates a transport for one iBox2.
-func NewMilightTransport(cfg *config.MilightConfig, state uhn.StateUpdater) *MilightTransport {
+func NewMilightTransport(cfg *config.MilightConfig, state uhn.StateUpdater, stateReader uhn.PhysicalStateReader) *MilightTransport {
+	gk := make(map[byte]*gatekeeperEntry)
+	for _, zone := range cfg.Zones {
+		if zone.Gatekeeper != nil {
+			gk[zone.Zone] = &gatekeeperEntry{
+				device:  zone.Gatekeeper.Device,
+				resType: zone.Gatekeeper.Type,
+				pin:     zone.Gatekeeper.PinInt,
+			}
+		}
+	}
 	return &MilightTransport{
-		cfg:    cfg,
-		client: NewUDPClient(cfg.Host, cfg.Port),
-		state:  state,
-		cmdCh:  make(chan transportCommand, 64),
-		done:   make(chan struct{}),
+		cfg:         cfg,
+		client:      NewUDPClient(cfg.Host, cfg.Port),
+		state:       state,
+		stateReader: stateReader,
+		gatekeepers: gk,
+		cmdCh:       make(chan transportCommand, 64),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -87,6 +111,11 @@ func (t *MilightTransport) runLoop(ctx context.Context) error {
 			return ctx.Err()
 
 		case cmd := <-t.cmdCh:
+			// Check gatekeeper BEFORE rate-limit sleep — dropped commands skip the delay
+			if !t.checkGatekeeper(cmd) {
+				continue
+			}
+
 			// Enforce minimum delay between sends
 			if elapsed := time.Since(lastSend); elapsed < cmdDelay {
 				time.Sleep(cmdDelay - elapsed)
@@ -158,4 +187,32 @@ func (t *MilightTransport) drainCmdChannel() {
 			return
 		}
 	}
+}
+
+// checkGatekeeper returns true if the command should proceed, false if suppressed.
+// Called in runLoop before rate-limit sleep so dropped commands don't incur delay.
+func (t *MilightTransport) checkGatekeeper(cmd transportCommand) bool {
+	entry, ok := t.gatekeepers[cmd.zone]
+	if !ok {
+		return true // no gatekeeper for this zone
+	}
+
+	val, found := t.stateReader.ReadPhysicalStateByAddress(entry.device, entry.resType, entry.pin)
+	if !found {
+		return true // unknown state = allow (default ON)
+	}
+
+	isOn, ok := toBool(val)
+	if !ok {
+		return true // non-bool state = allow
+	}
+
+	if !isOn {
+		logging.Debug("Mi-Light gatekeeper OFF, dropping command",
+			"host", t.cfg.Host, "zone", cmd.zone, "device", cmd.device,
+			"gatekeeper", entry.device)
+		return false
+	}
+
+	return true
 }

@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestParseIHCResourceID_Hex(t *testing.T) {
+func TestParseResourcePin_Hex(t *testing.T) {
 	tests := []struct {
 		input string
 		want  int
@@ -25,19 +25,19 @@ func TestParseIHCResourceID_Hex(t *testing.T) {
 		{"0x3E8B5D", 0x3E8B5D},
 	}
 	for _, tt := range tests {
-		got, err := parseIHCResourceID(tt.input)
+		got, err := parseResourcePin(tt.input)
 		if err != nil {
-			t.Errorf("parseIHCResourceID(%q) error: %v", tt.input, err)
+			t.Errorf("parseResourcePin(%q) error: %v", tt.input, err)
 			continue
 		}
 		if got != tt.want {
-			t.Errorf("parseIHCResourceID(%q) = %d (0x%X), want %d (0x%X)", tt.input, got, got, tt.want, tt.want)
+			t.Errorf("parseResourcePin(%q) = %d (0x%X), want %d (0x%X)", tt.input, got, got, tt.want, tt.want)
 		}
 	}
 }
 
-func TestParseIHCResourceID_Integer(t *testing.T) {
-	got, err := parseIHCResourceID("10422366")
+func TestParseResourcePin_Integer(t *testing.T) {
+	got, err := parseResourcePin("10422366")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -46,12 +46,12 @@ func TestParseIHCResourceID_Integer(t *testing.T) {
 	}
 }
 
-func TestParseIHCResourceID_Invalid(t *testing.T) {
+func TestParseResourcePin_Invalid(t *testing.T) {
 	tests := []string{"", "  ", "abc", "0xGGGG"}
 	for _, input := range tests {
-		_, err := parseIHCResourceID(input)
+		_, err := parseResourcePin(input)
 		if err == nil {
-			t.Errorf("parseIHCResourceID(%q) expected error, got nil", input)
+			t.Errorf("parseResourcePin(%q) expected error, got nil", input)
 		}
 	}
 }

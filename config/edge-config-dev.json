@@ -269,7 +269,11 @@
                 { "resourceId": "0x9F125C", "type": "digitalInput" },
                 { "resourceId": "0x9F165E", "type": "digitalOutput" },
                 { "resourceId": "0x8AE35D", "type": "analogOutput" },
-                { "resourceId": "0xA74E5B", "type": "digitalOutput" }
+                { "resourceId": "0xA74E5B", "type": "digitalOutput" },
+                { "resourceId": "0x7b495b", "type": "digitalOutput" },
+                { "resourceId": "0x7b595b", "type": "digitalOutput" },
+                { "resourceId": "0x7b555a", "type": "digitalInput" },
+                { "resourceId": "0x7b565a", "type": "digitalInput" }
             ]
         }
     ],
@@ -278,7 +282,10 @@
             "host": "localhost",
             "port": 5987,
             "zones": [
-                { "name": "milight-toilet", "zone": 4, "model": "fut069" }
+                {
+                    "name": "milight-toilet", "zone": 4, "model": "fut069",
+                    "gatekeeper": { "device": "ihc2", "type": "digitalOutput", "pin": "0x7b495b" }
+                }
             ]
         }
     ],

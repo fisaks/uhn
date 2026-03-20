@@ -41,6 +41,11 @@ type IPCBridge struct {
 	computedState map[string]any // C = S ?? P
 	stateMu       sync.RWMutex
 
+	// Address-keyed physical state cache (device:type:pin → value).
+	// Populated unconditionally by UpdatePhysicalStateByAddress (no blueprint needed).
+	// Read by transports for gatekeeper checks.
+	physicalByAddress map[string]any
+
 	actionHandler                    ActionHandler
 	logicalResourceStatePublisher    *LogicalResourceStatePublisher
 	logicalResourceStateSubscriber   *LogicalResourceStateSubscriber
@@ -52,11 +57,12 @@ type IPCBridge struct {
 // NewIPCBridge creates a new IPC bridge for the given edge.
 func NewIPCBridge(edgeName string, deviceMap map[string]*config.DeviceConfig) *IPCBridge {
 	return &IPCBridge{
-		edgeName:      edgeName,
-		deviceMap:     deviceMap,
-		physicalState: make(map[string]any),
-		signalState:   make(map[string]any),
-		computedState: make(map[string]any),
+		edgeName:          edgeName,
+		deviceMap:         deviceMap,
+		physicalState:     make(map[string]any),
+		signalState:       make(map[string]any),
+		computedState:     make(map[string]any),
+		physicalByAddress: make(map[string]any),
 	}
 }
 
@@ -264,6 +270,12 @@ func (b *IPCBridge) HandleDeviceState(ctx context.Context, state uhn.DeviceState
 // and independent of blueprint). Local runtime state update requires an
 // active blueprint with a ResourceMap.
 func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64) {
+	// Update address-keyed cache (unconditional, no blueprint needed)
+	addrKey := fmt.Sprintf("%s:%s:%d", device, resourceType, pin)
+	b.stateMu.Lock()
+	b.physicalByAddress[addrKey] = value
+	b.stateMu.Unlock()
+
 	// Publish physical pin state to MQTT (independent of blueprint)
 	if b.devicePinStatePublisher != nil {
 		b.devicePinStatePublisher.Publish(ctx, device, resourceType, pin, value, timestamp)
@@ -281,6 +293,16 @@ func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, re
 	}
 
 	b.updatePhysicalState(resourceID, value, timestamp)
+}
+
+// ReadPhysicalStateByAddress reads the latest physical state for a device address.
+// Returns (value, true) if state exists, (nil, false) if unknown.
+func (b *IPCBridge) ReadPhysicalStateByAddress(device, resourceType string, pin int) (any, bool) {
+	addrKey := fmt.Sprintf("%s:%s:%d", device, resourceType, pin)
+	b.stateMu.RLock()
+	v, ok := b.physicalByAddress[addrKey]
+	b.stateMu.RUnlock()
+	return v, ok
 }
 
 // getResourceMap returns the current resource map (nil if runtime not ready).

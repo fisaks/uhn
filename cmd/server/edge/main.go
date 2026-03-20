@@ -146,7 +146,7 @@ func main() {
 		// Create Mi-Light transports and zone drivers
 		var milightTransports []*milight.MilightTransport
 		for _, mlCfg := range cfg.Milights {
-			transport := milight.NewMilightTransport(mlCfg, ipcBridge)
+			transport := milight.NewMilightTransport(mlCfg, ipcBridge, ipcBridge)
 			milightTransports = append(milightTransports, transport)
 			for _, zoneCfg := range mlCfg.Zones {
 				driver := milight.NewMilightDriver(transport, zoneCfg)

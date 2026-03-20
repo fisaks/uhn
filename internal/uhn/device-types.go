@@ -61,6 +61,12 @@ type StateUpdater interface {
 	UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64)
 }
 
+// PhysicalStateReader provides read access to the latest physical state by device address.
+// Used by transports that need to check gatekeeper state before sending commands.
+type PhysicalStateReader interface {
+	ReadPhysicalStateByAddress(device, resourceType string, pin int) (value any, ok bool)
+}
+
 // DeviceTransport manages the connection lifecycle for a hardware transport layer.
 // One transport may serve multiple DeviceDrivers (e.g. Mi-Light iBox2 serves
 // multiple zones, a Modbus serial bus serves multiple slave devices).

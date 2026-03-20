@@ -65,10 +65,24 @@ type EdgeSettings struct {
 
 // Mi-Light types
 
+// GatekeeperRef references a digital resource on the same edge that gates
+// commands for a device. When the gatekeeper is OFF (e.g. mains relay),
+// commands are suppressed. Must be a digitalOutput or digitalInput (bool
+// state). Only works with drivers that publish state via
+// UpdatePhysicalStateByAddress (IHC, Mi-Light). Modbus uses a different
+// state path and would not populate the gatekeeper cache.
+type GatekeeperRef struct {
+	Device string `json:"device"` // any device name (e.g. "ihc2", "toilet_io8_1")
+	Type   string `json:"type"`   // resource type (e.g. "digitalOutput")
+	Pin    string `json:"pin"`    // numeric or hex ("0x9F045C", "0")
+	PinInt int    `json:"-"`      // populated during validation
+}
+
 type MilightZoneConfig struct {
-	Name  string `json:"name"`  // device name (e.g. "milight-z1")
-	Zone  byte   `json:"zone"`  // 1-4
-	Model string `json:"model"` // bulb model (e.g. "fut069")
+	Name       string         `json:"name"`                 // device name (e.g. "milight-z1")
+	Zone       byte           `json:"zone"`                 // 1-4
+	Model      string         `json:"model"`                // bulb model (e.g. "fut069")
+	Gatekeeper *GatekeeperRef `json:"gatekeeper,omitempty"` // optional: mains power resource that gates commands
 }
 
 // Supported Mi-Light bulb models.
@@ -455,6 +469,17 @@ func (c *EdgeConfig) Validate() error {
 		}
 	}
 
+	// Cross-validate gatekeeper device references exist in allNames
+	for _, ml := range c.Milights {
+		for _, zone := range ml.Zones {
+			if zone.Gatekeeper != nil && strings.TrimSpace(zone.Gatekeeper.Device) != "" {
+				if _, ok := allNames[zone.Gatekeeper.Device]; !ok {
+					return fmt.Errorf("Mi-Light zone %q gatekeeper references unknown device %q", zone.Name, zone.Gatekeeper.Device)
+				}
+			}
+		}
+	}
+
 	return c.linkGraph()
 }
 func (c *EdgeConfig) linkGraph() error {
@@ -497,7 +522,7 @@ func (c *EdgeConfig) linkGraph() error {
    IHC validation + helpers
    ========================= */
 
-var validIHCResourceTypes = map[string]bool{
+var validResourceTypes = map[string]bool{
 	"digitalOutput": true,
 	"digitalInput":  true,
 	"analogOutput":  true,
@@ -561,10 +586,10 @@ func (c *EdgeConfig) validateIHC(errs *multiErr) {
 		seenIDs := map[int]bool{}
 		for j, res := range ctrl.Resources {
 			resPrefix := fmt.Sprintf("%s.resources[%d]", prefix, j)
-			if !validIHCResourceTypes[res.Type] {
+			if !validResourceTypes[res.Type] {
 				errs.addf("%s: type must be digitalOutput|digitalInput|analogOutput|analogInput (got %q)", resPrefix, res.Type)
 			}
-			parsed, err := parseIHCResourceID(res.ResourceID)
+			parsed, err := parseResourcePin(res.ResourceID)
 			if err != nil {
 				errs.addf("%s: invalid resourceId %q: %v", resPrefix, res.ResourceID, err)
 			} else {
@@ -585,7 +610,7 @@ func (c *EdgeConfig) validateIHC(errs *multiErr) {
 				ctrl.HealthCheck.IntervalSec = 60
 			}
 			for j, raw := range ctrl.HealthCheck.Resources {
-				parsed, err := parseIHCResourceID(raw)
+				parsed, err := parseResourcePin(raw)
 				if err != nil {
 					errs.addf("%s.healthCheck.resources[%d]: invalid resourceId %q: %v", prefix, j, raw, err)
 				} else {
@@ -598,8 +623,8 @@ func (c *EdgeConfig) validateIHC(errs *multiErr) {
 	}
 }
 
-// parseIHCResourceID parses a resource ID from hex string ("0x9F1F3E", "_0x9F1F3E") or integer.
-func parseIHCResourceID(raw string) (int, error) {
+// parseResourcePin parses a resource pin/ID from hex string ("0x9F1F3E", "_0x9F1F3E") or integer.
+func parseResourcePin(raw string) (int, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return 0, fmt.Errorf("empty resource ID")
@@ -702,6 +727,28 @@ func (c *EdgeConfig) validateMilight(errs *multiErr) {
 				errs.addf("%s: model is required", zPrefix)
 			} else if !milightSupportedModels[zone.Model] {
 				errs.addf("%s: unsupported model %q", zPrefix, zone.Model)
+			}
+		}
+
+		// Validate gatekeeper references on each zone
+		for j, zone := range ml.Zones {
+			if zone.Gatekeeper == nil {
+				continue
+			}
+			gk := zone.Gatekeeper
+			gkPrefix := fmt.Sprintf("%s.zones[%d/%s].gatekeeper", prefix, j, zone.Name)
+
+			if strings.TrimSpace(gk.Device) == "" {
+				errs.addf("%s: device is required", gkPrefix)
+			}
+			if gk.Type != "digitalOutput" && gk.Type != "digitalInput" {
+				errs.addf("%s: type must be digitalOutput|digitalInput (got %q)", gkPrefix, gk.Type)
+			}
+			parsed, err := parseResourcePin(gk.Pin)
+			if err != nil {
+				errs.addf("%s: invalid pin %q: %v", gkPrefix, gk.Pin, err)
+			} else {
+				gk.PinInt = parsed
 			}
 		}
 
