@@ -134,7 +134,7 @@ Blueprint Rule / View Command
 - **`BypassSignalState() = true`** — signals forwarded to driver → UDP command → assumed P published. Without this, S would stick forever since there's no independent P update to clear it.
 - **No state on startup** — state is unknown until the first command. Stale assumptions are not published.
 - **Per-bridge command queue** — iBox2 requires minimum 100ms between UDP sends. All zones on one bridge share a serialized queue.
-- **Health via ACK** — UDP v6 acknowledges every command (0x88). No ACK after retries = bridge down → reconnect with exponential backoff.
+- **Health via ACK** — UDP v6 acknowledges every command (0x88). No ACK after retries (default 1) = command fails. Retries are immediate with no backoff delay.
 - **Side effects** — some commands affect other pins' assumed state (e.g. power off resets night mode to false).
 
 **Resource mapping** (FUT069 example, per zone e.g. `device/milight-toilet`):
