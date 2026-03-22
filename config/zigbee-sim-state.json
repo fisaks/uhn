@@ -1,0 +1,27 @@
+{
+  "socket_plug_1": {
+    "current": 0,
+    "linkquality": 184,
+    "power": 0,
+    "state": "OFF",
+    "voltage": 237.27
+  },
+  "kitchen_temperature_display": {
+    "temperature": 22.5,
+    "humidity": 45.2,
+    "battery": 87,
+    "voltage": 3000,
+    "linkquality": 120
+  },
+  "outdoor_temperature": {
+    "temperature": 5.3,
+    "humidity": 72.1,
+    "battery": 92,
+    "voltage": 3100,
+    "linkquality": 85
+  },
+  "button_panel_1": {
+    "battery": 95,
+    "linkquality": 110
+  }
+}

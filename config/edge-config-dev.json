@@ -289,6 +289,17 @@
             ]
         }
     ],
+    "zigbee": [
+        {
+            "name": "zigbee_1",
+            "baseTopic": "zigbee2mqtt-sim",
+            "devices": [
+                { "name": "kitchen_temperature_display" },
+                { "name": "outdoor_temperature" },
+                { "name": "socket_plug_1", "optimistic": false }
+            ]
+        }
+    ],
     "heartbeatInterval": 600,
     "pollIntervalMs": 500
 }

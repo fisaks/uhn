@@ -368,9 +368,9 @@ curl -s -X POST http://localhost:8091/admin/start
 
 ### Zigbee2MQTT (Z2M)
 
-Z2M runs as a Docker container, managing Zigbee devices via a USB coordinator dongle. No simulator yet (Phase 1.1).
+Z2M runs as a Docker container with real hardware, or as a simulator in dev mode.
 
-#### Setup
+#### Real hardware setup
 
 1. Copy the template config:
    ```sh
@@ -379,6 +379,30 @@ Z2M runs as a Docker container, managing Zigbee devices via a USB coordinator do
 2. Adjust `serial.port` if needed (auto-detected path shown at devserver startup)
 3. Plug in USB Zigbee dongle, start devserver — Z2M starts automatically
 4. Z2M frontend: http://localhost:8081 (device pairing, settings, dev console)
+
+#### Simulator (REST on port 8092)
+
+Simulates Z2M's MQTT interface using fixture files captured from real Z2M. Publishes `bridge/devices`, device state, availability, handles `/set` commands, and ticks sensor values.
+
+Fixtures are captured from real Z2M via `./capture-z2m-fixtures.sh` (requires Z2M running with real hardware). Enable with `ZIGBEE_SIM=true` in the devserver conf.
+
+```sh
+# List all devices with current state
+curl -s http://localhost:8092/devices
+
+# Get a single device
+curl -s http://localhost:8092/device/socket_plug_1
+
+# Set device properties
+curl -s -X PUT http://localhost:8092/device/socket_plug_1 \
+  -H 'Content-Type: application/json' -d '{"state": "ON"}'
+
+# Toggle state
+curl -s -X POST http://localhost:8092/device/socket_plug_1/toggle
+
+# Re-publish bridge/devices to MQTT
+curl -s -X POST http://localhost:8092/admin/publish-devices
+```
 
 #### Edge config
 
@@ -396,7 +420,7 @@ Z2M devices must be listed in the edge config to be processed:
 }
 ```
 
-Only listed devices get state published, availability tracked, and drivers created. Properties are further filtered by the blueprint ResourceMap.
+Only listed devices get state published, availability tracked, and drivers created. Properties are further filtered by the blueprint ResourceMap. Use `baseTopic: "zigbee2mqtt-sim"` in dev config to separate from real Z2M.
 
 ## Navigating the tmux Environment
 

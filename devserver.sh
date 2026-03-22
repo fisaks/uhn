@@ -90,8 +90,8 @@ start_dev_env() {
         echo "Mosquitto already running"
     fi
 
-    # Start Zigbee2MQTT container if enabled
-    if [[ "$ZIGBEE_Z2M" == "true" ]]; then
+    # Start Zigbee2MQTT container if enabled (skip if sim takes over)
+    if [[ "$ZIGBEE_Z2M" == "true" && "$ZIGBEE_SIM" != "true" ]]; then
         if ! docker ps --format '{{.Names}}' | grep -q '^uhn-zigbee2mqtt$'; then
             echo "Starting Zigbee2MQTT via Docker Compose..."
             docker compose --profile zigbee up -d zigbee2mqtt
@@ -249,13 +249,13 @@ start_dev_env() {
         tmux send-keys -t $SESSION:sims.2 "echo 'Mi-Light sim disabled for profile: ${profile}'" C-m
     fi
 
-    # Pane 3: Zigbee (bottom-right)
-    if [[ "$ZIGBEE_Z2M" == "true" ]]; then
+    # Pane 3: Zigbee (bottom-right) — sim takes priority over Z2M
+    if [[ "$ZIGBEE_SIM" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.3 "cd $WORKDIR && air -c .air-zigbee-sim.toml" C-m
+    elif [[ "$ZIGBEE_Z2M" == "true" ]]; then
         tmux send-keys -t $SESSION:sims.3 "docker logs -f uhn-zigbee2mqtt" C-m
-    elif [[ "$ZIGBEE_SIM" == "true" ]]; then
-        tmux send-keys -t $SESSION:sims.3 "echo 'Zigbee simulator not yet implemented (Phase 1.1)'" C-m
     else
-        tmux send-keys -t $SESSION:sims.3 "echo 'Zigbee: no USB dongle detected and ZIGBEE_Z2M not set'" C-m
+        tmux send-keys -t $SESSION:sims.3 "echo 'Zigbee: no USB dongle detected and ZIGBEE_Z2M/ZIGBEE_SIM not set'" C-m
     fi
 
     # Focus back to dev window

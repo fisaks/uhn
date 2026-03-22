@@ -67,6 +67,7 @@ type BrokerConfig struct {
 	BrokerURL        string
 	ClientName       string
 	TopicPrefix      string
+	CleanSession     bool
 	ConnectTimeout   time.Duration
 	PublishTimeout   time.Duration
 	SubscribeTimeout time.Duration
@@ -120,7 +121,7 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	opts.SetConnectTimeout(b.config.ConnectTimeout)
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
-	opts.SetCleanSession(false)
+	opts.SetCleanSession(b.config.CleanSession)
 	opts.SetKeepAlive(60 * time.Second)
 	opts.SetPingTimeout(15 * time.Second)
 	willTopic := b.prefixTopic("status")
