@@ -36,8 +36,9 @@ func NewResourceMap(edgeName string, resources []RuntimeResource) *ResourceMap {
 }
 
 // LookupResourceID returns the resource ID for a device/type/pin address.
-func (rm *ResourceMap) LookupResourceID(device, resourceType string, pin int) (string, bool) {
-	key := fmt.Sprintf("%s:%s:%d", device, resourceType, pin)
+// Pin can be int/float64 (numeric) or string (Z2M property name).
+func (rm *ResourceMap) LookupResourceID(device, resourceType string, pin any) (string, bool) {
+	key := fmt.Sprintf("%s:%s:%s", device, resourceType, formatPinForKey(pin))
 	id, ok := rm.byAddressKey[key]
 	return id, ok
 }
@@ -45,6 +46,17 @@ func (rm *ResourceMap) LookupResourceID(device, resourceType string, pin int) (s
 // LookupResource returns the resource for a given resource ID.
 func (rm *ResourceMap) LookupResource(resourceID string) (*RuntimeResource, bool) {
 	r, ok := rm.byResourceID[resourceID]
+	return r, ok
+}
+
+// LookupByAddress returns the resource for a device/type/pin address.
+func (rm *ResourceMap) LookupByAddress(device, resourceType string, pin any) (*RuntimeResource, bool) {
+	key := fmt.Sprintf("%s:%s:%s", device, resourceType, formatPinForKey(pin))
+	id, ok := rm.byAddressKey[key]
+	if !ok {
+		return nil, false
+	}
+	r, ok := rm.byResourceID[id]
 	return r, ok
 }
 
@@ -61,7 +73,23 @@ func (rm *ResourceMap) AllResourceIDs() []string {
 // For pin-based resources: "{device}:{type}:{pin}"
 func makeAddressKey(r *RuntimeResource) string {
 	if r.Device != "" && r.Type != "" && r.Pin != nil {
-		return fmt.Sprintf("%s:%s:%d", r.Device, r.Type, *r.Pin)
+		return fmt.Sprintf("%s:%s:%s", r.Device, r.Type, formatPinForKey(r.Pin))
 	}
 	return ""
+}
+
+// formatPinForKey formats a pin value for use in address keys.
+// Numeric pins (float64 from JSON, int) are formatted as integers.
+// String pins (Z2M property names) are used as-is.
+func formatPinForKey(pin any) string {
+	switch v := pin.(type) {
+	case float64:
+		return fmt.Sprintf("%d", int(v))
+	case int:
+		return fmt.Sprintf("%d", v)
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }

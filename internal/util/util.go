@@ -72,21 +72,27 @@ func ToUint16(v any) uint16 {
 }
 
 func ToInt(v any) int {
+	i, _ := ToIntOk(v)
+	return i
+}
+
+// ToIntOk converts a value to int, returning false if not numeric.
+func ToIntOk(v any) (int, bool) {
 	switch x := v.(type) {
 	case float64:
-		return int(x)
+		return int(x), true
 	case int:
-		return x
+		return x, true
 	case string:
 		s := strings.TrimSpace(x)
 		if s == "" {
-			return 0
+			return 0, false
 		}
 		if i, err := strconv.Atoi(s); err == nil {
-			return i
+			return i, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // Clamp restricts v to [lo, hi].

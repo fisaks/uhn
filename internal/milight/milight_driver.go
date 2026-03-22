@@ -42,8 +42,12 @@ func NewMilightDriver(transport *MilightTransport, zoneCfg *config.MilightZoneCo
 }
 
 // SetOutput writes an output value to the Mi-Light zone.
-func (d *MilightDriver) SetOutput(ctx context.Context, pin int, value any) error {
-	cmds, err := d.buildCommands(pin, value)
+func (d *MilightDriver) SetOutput(ctx context.Context, pin any, value any) error {
+	pinInt, ok := toInt(pin)
+	if !ok {
+		return fmt.Errorf("Mi-Light %s: expected numeric pin, got %T", d.device, pin)
+	}
+	cmds, err := d.buildCommands(pinInt, value)
 	if err != nil {
 		return err
 	}
@@ -58,7 +62,7 @@ func (d *MilightDriver) SetOutput(ctx context.Context, pin int, value any) error
 }
 
 // HandleSignal forwards a signal to the device — delegates to SetOutput.
-func (d *MilightDriver) HandleSignal(ctx context.Context, pin int, value any) error {
+func (d *MilightDriver) HandleSignal(ctx context.Context, pin any, value any) error {
 	return d.SetOutput(ctx, pin, value)
 }
 

@@ -40,10 +40,37 @@ start_dev_env() {
     # Source env file for simulator flags
     source "$ENV_FILE"
 
+    # Resolve timezone: env TZ > /etc/timezone > UTC
+    if [[ -z "$TZ" ]]; then
+        if [[ -f /etc/timezone ]]; then
+            export TZ=$(cat /etc/timezone)
+        else
+            export TZ=UTC
+        fi
+    fi
+
+    # Detect Zigbee USB dongle path (stable /dev/serial/by-id/ path)
+    ZIGBEE_DEV=$(ls /dev/serial/by-id/*Sonoff*Zigbee* /dev/serial/by-id/*Silicon_Labs* 2>/dev/null | head -1)
+    if [[ -n "$ZIGBEE_DEV" ]]; then
+        export ZIGBEE_DEVICE="$ZIGBEE_DEV"
+    fi
+
+    # Auto-detect ZIGBEE_Z2M if not explicitly set in conf
+    if [[ -z "$ZIGBEE_Z2M" ]]; then
+        if [[ -n "$ZIGBEE_DEV" ]]; then
+            ZIGBEE_Z2M=true
+        else
+            ZIGBEE_Z2M=false
+        fi
+    fi
+
     echo "Starting development environment: profile=$profile, session=$SESSION"
     echo "  Config: $CONFIG_FILE"
     echo "  Env:    $ENV_FILE"
-    echo "  MODBUS_SIM=$MODBUS_SIM, IHC_SIM=$IHC_SIM, MILIGHT_SIM=$MILIGHT_SIM"
+    echo "  MODBUS_SIM=$MODBUS_SIM, IHC_SIM=$IHC_SIM, MILIGHT_SIM=$MILIGHT_SIM, ZIGBEE_Z2M=$ZIGBEE_Z2M"
+    if [[ -n "$ZIGBEE_DEV" ]]; then
+        echo "  Zigbee dongle: $ZIGBEE_DEV"
+    fi
 
     if [[ "$debug" == "true" ]]; then
         echo "  Mode: debug hot reload"
@@ -61,6 +88,16 @@ start_dev_env() {
         docker compose --profile dev up -d mosquitto
     else
         echo "Mosquitto already running"
+    fi
+
+    # Start Zigbee2MQTT container if enabled
+    if [[ "$ZIGBEE_Z2M" == "true" ]]; then
+        if ! docker ps --format '{{.Names}}' | grep -q '^uhn-zigbee2mqtt$'; then
+            echo "Starting Zigbee2MQTT via Docker Compose..."
+            docker compose --profile zigbee up -d zigbee2mqtt
+        else
+            echo "Zigbee2MQTT already running"
+        fi
     fi
 
     echo "Waiting for Mosquitto to be ready on localhost:1883..."
@@ -175,31 +212,50 @@ start_dev_env() {
     tmux split-window -h -t $SESSION.1
     tmux select-pane -t $SESSION.2
 
-    # --- Window 2: sims (Modbus left, IHC right) ---
+    # --- Window 2: sims (2x2 grid: Modbus/IHC left, Mi-Light/Zigbee right) ---
+    #
+    # Layout:  0 Modbus    | 2 Mi-Light
+    #          1 IHC       | 3 Zigbee
 
     tmux new-window -t $SESSION -n sims
 
-    # Left pane: Modbus simulator
+    # Split into left/right columns
+    tmux split-window -h -t $SESSION:sims.0
+
+    # Split left column (pane 0) into top/bottom
+    tmux split-window -v -t $SESSION:sims.0
+
+    # Split right column (pane 2) into top/bottom
+    tmux split-window -v -t $SESSION:sims.2
+
+    # Pane 0: Modbus (top-left)
     if [[ "$MODBUS_SIM" == "true" ]]; then
         tmux send-keys -t $SESSION:sims.0 "cd $WORKDIR && air -c $SIM_AIR_FILE" C-m
     else
         tmux send-keys -t $SESSION:sims.0 "echo 'Modbus sim disabled for profile: ${profile}'" C-m
     fi
 
-    # Right pane: IHC simulator
-    tmux split-window -h -t $SESSION:sims.0
+    # Pane 1: IHC (bottom-left)
     if [[ "$IHC_SIM" == "true" ]]; then
         tmux send-keys -t $SESSION:sims.1 "cd $WORKDIR && air -c .air-ihc-sim.toml" C-m
     else
         tmux send-keys -t $SESSION:sims.1 "echo 'IHC sim disabled for profile: ${profile}'" C-m
     fi
 
-    # Bottom pane: Mi-Light simulator
-    tmux split-window -v -t $SESSION:sims.1
+    # Pane 2: Mi-Light (top-right)
     if [[ "$MILIGHT_SIM" == "true" ]]; then
         tmux send-keys -t $SESSION:sims.2 "cd $WORKDIR && air -c .air-milight-sim.toml" C-m
     else
         tmux send-keys -t $SESSION:sims.2 "echo 'Mi-Light sim disabled for profile: ${profile}'" C-m
+    fi
+
+    # Pane 3: Zigbee (bottom-right)
+    if [[ "$ZIGBEE_Z2M" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.3 "docker logs -f uhn-zigbee2mqtt" C-m
+    elif [[ "$ZIGBEE_SIM" == "true" ]]; then
+        tmux send-keys -t $SESSION:sims.3 "echo 'Zigbee simulator not yet implemented (Phase 1.1)'" C-m
+    else
+        tmux send-keys -t $SESSION:sims.3 "echo 'Zigbee: no USB dongle detected and ZIGBEE_Z2M not set'" C-m
     fi
 
     # Focus back to dev window
@@ -217,6 +273,9 @@ stop_dev_env() {
 
     echo "Killing socat..."
     pkill -f "socat -d -d pty,raw,echo=0"
+
+    echo "Stopping Zigbee2MQTT container..."
+    docker compose --profile zigbee stop zigbee2mqtt 2>/dev/null
 
     echo "Stopping Mosquitto container..."
     docker compose --profile dev stop mosquitto

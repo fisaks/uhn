@@ -55,7 +55,8 @@ The main entry point. On startup it: loads config from JSON, generates/loads an 
 - **ihcsim** — IHC SOAP simulator for local development. Full SOAP protocol (auth, subscribe, long-poll notifications, setValue) + REST control plane (port 8090) for testing. Includes reactive bindings system (trigger input → toggle output). Entry point: `cmd/tools/ihc-sim/main.go`.
 - **milight** — Mi-Light iBox2 driver. Transport (`milight_transport.go`) manages UDP v6 connection, per-bridge command queue with rate limiting (100ms between sends), assumed state publishing, and per-zone **gatekeeper** (checks an external physical resource — e.g. IHC mains relay — before sending; suppresses commands when OFF, resets night mode assumed state on OFF→ON transition). Driver (`milight_driver.go`) maps pins to FUT069 RGB+CCT commands. Implements `DeviceTransport` + `DeviceDriver` with `BypassSignalState() = true`.
 - **milightsim** — Mi-Light UDP simulator for local development. Receives v6 packets (handshake, commands), sends ACK responses, tracks per-zone state (power, brightness, CCT, hue, saturation, mode). REST control plane on port 8091. Entry point: `cmd/tools/milight-sim/main.go`.
-- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`, `DeviceTransport`, `DeviceDriver`). `DeviceTransport` manages connection lifecycle; `DeviceDriver` handles protocol-agnostic device interaction.
+- **zigbee** — Zigbee2MQTT driver. Transport (`zigbee_transport.go`) subscribes to Z2M MQTT topics via raw (unprefixed) subscriptions, auto-discovers devices from `bridge/devices`, filters state by edge config + ResourceMap, rounds analog values by `decimalPrecision`, caches blobs for replay after ResourceMap is built. Driver (`zigbee_driver.go`) publishes `/set` commands to Z2M, converts bool→ON/OFF for enum state properties. `BypassSignalState() = false`. Configured via `zigbee[].devices[]` in edge config with optional `optimistic` setting per device.
+- **uhn** — Core domain types: `DeviceState`, `DeviceCommand`, and interfaces (`EdgePublisher`, `EdgeSubscriber`, `CommandPusher`, `DeviceTransport`, `DeviceDriver`, `ResourceLookup`). `DeviceTransport` manages connection lifecycle; `DeviceDriver` handles protocol-agnostic device interaction (pin type is `any` — numeric for IHC/Modbus, string for Z2M). `ResourceLookup` provides blueprint filtering for transports that need it.
 
 ### Sandbox System (`cmd/tools/sandbox-*`, `docs/sandbox.md`)
 
@@ -66,7 +67,8 @@ Four-tier isolation for user rules: launcher → setup (runs as root, sets up na
 - `uhn/{edgeName}/catalog` — Device inventory (retained)
 - `uhn/{edgeName}/identity` — Edge public key
 - `uhn/{edgeName}/device/{deviceName}/state` — Device state updates (Modbus byte arrays)
-- `uhn/{edgeName}/device/{deviceName}/pin/{hexPin}` — Per-pin state (IHC)
+- `uhn/{edgeName}/device/{deviceName}/pin/{pin}` — Per-pin state (IHC: hex pin, Z2M: property name)
+- `uhn/{edgeName}/device/{deviceName}/availability` — Device online/offline (Z2M)
 - `uhn/{edgeName}/device/{deviceName}/cmd` — Device commands
 - `uhn/{edgeName}/resource/state/{resourceId}` — Logical resource state (timers, virtual)
 - `uhn/{edgeName}/resource/signal/{resourceId}` — Signal overrides from master
@@ -79,11 +81,13 @@ See `docs/mqtt-state-flow.md` for the full topic reference and state flow docume
 
 `devserver.sh` supports profiles for switching between simulator and real hardware environments. Each profile uses two files:
 - `config/edge-config-{profile}.json` — edge configuration
-- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`)
+- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`, `MILIGHT_SIM`, `ZIGBEE_SIM`)
+
+Zigbee USB dongle is auto-detected via `lsusb`. Override with `ZIGBEE_Z2M` in conf.
 
 The tmux session (`uhn-{profile}`) has two windows:
 - **dev** — MQTT monitor, Mosquitto logs, edge server, empty shell
-- **sims** — Modbus simulator (left), IHC simulator (right)
+- **sims** — 2x2 grid: Modbus (top-left), IHC (bottom-left), Mi-Light (top-right), Zigbee/Z2M logs (bottom-right)
 
 Mixed configurations are supported (e.g., `MODBUS_SIM=true` + `IHC_SIM=false` for real IHC with simulated Modbus).
 

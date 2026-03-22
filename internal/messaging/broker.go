@@ -34,8 +34,17 @@ type Broker interface {
 	Publish(ctx context.Context, topic string, qos QoS, retain bool, payload []byte) error
 	PublishJSON(ctx context.Context, topic string, qos QoS, retain bool, v interface{}) error
 
+	// PublishRaw publishes without adding the topic prefix. Used for protocols
+	// that have their own topic namespace (e.g. Zigbee2MQTT).
+	PublishRaw(ctx context.Context, topic string, qos QoS, retain bool, payload []byte) error
+
 	Subscribe(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
 	SubscribeMaster(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
+
+	// SubscribeRaw subscribes without adding the topic prefix. Used for protocols
+	// that have their own topic namespace (e.g. Zigbee2MQTT).
+	SubscribeRaw(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error)
+
 	IsConnected() bool
 	AddOnConnectPublisher(id string, publisher OnConnectPublisher)
 	RemoveOnConnectPublisher(id string)
@@ -263,6 +272,38 @@ func (b *MsgBroker) SubscribeMaster(ctx context.Context, topic string, qos QoS, 
 		return nil, errors.New("client not initialized")
 	}
 	return b.subscribeRaw(ctx, "uhn/master/"+topic, qos, handler)
+}
+
+// SubscribeRaw subscribes to a topic without adding the topic prefix.
+func (b *MsgBroker) SubscribeRaw(ctx context.Context, topic string, qos QoS, handler Subscriber) (Subscription, error) {
+	if b.client == nil {
+		return nil, errors.New("client not initialized")
+	}
+	return b.subscribeRaw(ctx, topic, qos, handler)
+}
+
+// PublishRaw publishes to a topic without adding the topic prefix.
+func (b *MsgBroker) PublishRaw(ctx context.Context, topic string, qos QoS, retain bool, payload []byte) error {
+	if b.client == nil {
+		return errors.New("client not initialized")
+	}
+	qosByte, wait := qosToByte(qos)
+	token := b.client.Publish(topic, qosByte, retain, payload)
+	if !wait {
+		return nil
+	}
+	timeout := b.config.PublishTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	select {
+	case <-token.Done():
+		return token.Error()
+	case <-time.After(timeout):
+		return fmt.Errorf("publish timeout after %v", timeout)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (b *MsgBroker) subscribeRaw(ctx context.Context, fullTopic string, qos QoS, handler Subscriber) (Subscription, error) {

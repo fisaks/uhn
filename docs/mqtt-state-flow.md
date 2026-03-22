@@ -11,7 +11,7 @@ All edge topics are prefixed with `uhn/{edgeName}/`. The master subscribes using
 Both the edge (IPCBridge) and the master (StateRuntimeService) maintain identical state semantics per resource:
 
 ```
-P = Physical State   (from hardware: Modbus poll or IHC notification)
+P = Physical State   (from hardware: Modbus poll, IHC notification, or Z2M state)
 S = Signal State     (temporary override from master or rule engine)
 C = Computed State   (what the runtime and UI see)
 
@@ -29,7 +29,8 @@ C = S !== undefined ? S : P
 | Topic Pattern | Direction | Purpose | Payload |
 |---|---|---|---|
 | `device/{name}/state` | Edge → Master | Modbus device-level state (byte arrays) | `DeviceStatePayload` |
-| `device/{name}/pin/{pin}` | Edge → Master | Per-pin physical state (IHC, future drivers). Pin in topic is hex for IHC (`0x9F085E`), may be int for other vendors. | `{ type, pin, value, timestamp }` |
+| `device/{name}/pin/{pin}` | Edge → Master | Per-pin physical state (IHC, Z2M). Pin in topic is hex for IHC (`0x9F085E`), literal string for Z2M (`temperature`). | `{ type, pin, value, timestamp }` |
+| `device/{name}/availability` | Edge → Master | Per-device online/offline (Z2M devices) | `"online"` or `"offline"` |
 | `device/{name}/cmd` | Master → Edge | Direct device commands (set output, toggle) | `{ action, address, value, ... }` |
 | `resource/state/{resourceId}` | Edge → Master | Logical resource state (timers, virtual) | `{ resourceId, value, timestamp, details? }` |
 | `resource/signal/{resourceId}` | Master → Edge | Signal override | `{ resourceId, value, timestamp }` |
@@ -105,6 +106,58 @@ IHC Controller
 The topic uses hex (`0x9F085E`) for readability (matches IHC Visual project files). The payload `pin` stays as an integer for machine processing. The pin in the topic is not used in any logic — only the `device` segment is parsed.
 
 Both Modbus and IHC paths converge to the same `updatePhysicalState(resourceId, value, timestamp)` on the master. The master resolves physical addresses to resource IDs via `makeAddressKey()` — the physical layer never needs to know about blueprint resource names.
+
+## Physical State: Zigbee/Z2M Flow (Per-Pin, Filtered)
+
+Zigbee devices are managed via Zigbee2MQTT (Z2M), which runs as a Docker container on the edge. Z2M handles the Zigbee radio protocol, device pairing, and converter logic. The edge subscribes to Z2M's MQTT topics using raw (unprefixed) subscriptions — Z2M publishes to `zigbee2mqtt/...`, not under the `uhn/{edge}/` namespace.
+
+```
+Z2M (Docker container) → zigbee2mqtt/{device} (raw MQTT, full JSON blob)
+  → ZigbeeTransport.handleZ2MDeviceState()
+    → Cache raw blob for replay (before ResourceMap exists)
+    → Skip if no ResourceMap yet (state replayed later via onResourceMapReady)
+    → processStateBlob() per property:
+      ├→ Filter: only properties in ResourceMap (blueprint-exported)
+      ├→ Round: decimalPrecision from resource definition
+      ├→ Change detection: skip if value unchanged
+      └→ IPCBridge.UpdatePhysicalStateByAddress()
+          ├→ DevicePinStatePublisher   [MQTT: device/{name}/pin/{pin}]
+          │   └→ Master: same path as IHC per-pin
+          └→ ResourceMap lookup → updatePhysicalState() [edge local: P/S/C]
+```
+
+**Key differences from IHC:**
+- **Filtered by ResourceMap** — Z2M devices expose many properties (linkquality, battery, etc.) but only blueprint-exported properties are published. IHC publishes all notifications unconditionally.
+- **Filtered by edge config** — only devices listed in `zigbee[].devices[]` are processed. Unlisted Z2M devices are ignored entirely.
+- **String pins** — Z2M uses property names as pins (`"temperature"`, `"state"`, `"power"`), not numeric IDs. The MQTT topic uses the literal string: `device/kitchen_temperature_display/pin/temperature`.
+- **`decimalPrecision` rounding** — analog values are rounded before change detection to reduce noise from sensors that report tiny fluctuations.
+- **Cached blob replay** — Z2M retained messages arrive before the ResourceMap is built. Blobs are cached per device and replayed through the filtered path once the ResourceMap is ready.
+- **`BypassSignalState() = false`** — Z2M state flows back through MQTT naturally, so the standard S/P model applies (unlike IHC where signals bypass local state).
+- **`optimistic: false` recommended** — Z2M's optimistic mode can cause state flip-flop on devices with frequent property reports (energy monitoring). Configured per device in edge config.
+- **Raw MQTT** — Z2M subscriptions and `/set` commands use `broker.SubscribeRaw()` / `broker.PublishRaw()` to bypass the `uhn/{edge}/` prefix.
+
+**MQTT payload** (`device/kitchen_temperature_display/pin/temperature`):
+```json
+{
+  "type": "analogInput",
+  "pin": "temperature",
+  "value": 22.5,
+  "timestamp": 1710763200000
+}
+```
+
+**Z2M `/set` commands** (toggle smart plug):
+```
+ZigbeeDriver.SetOutput("state", false)
+  → bool→"OFF" conversion
+  → PublishRaw: zigbee2mqtt/socket_plug_1/set {"state": "OFF"}
+  → Z2M sends Zigbee command → device confirms
+  → Z2M publishes: zigbee2mqtt/socket_plug_1 {"state": "OFF", ...}
+  → Transport processes confirmed state
+```
+
+**Device availability:**
+Z2M publishes `zigbee2mqtt/{device}/availability` → transport publishes to `device/{name}/availability` on UHN MQTT (retained). Only for config-listed devices.
 
 ## Physical State: Mi-Light Flow (Assumed State)
 
@@ -353,15 +406,28 @@ The master determines device capabilities from the edge catalog:
   "type": "ihc",
   "bypassSignalState": true,
   "resources": [
-    { "id": 10422366, "hexId": "0x9F085E", "type": "digitalOutput" },
-    { "id": 10420316, "hexId": "0x9F045C", "type": "digitalInput" }
+    { "id": 10422366, "type": "digitalOutput" },
+    { "id": 10420316, "type": "digitalInput" }
+  ]
+}
+```
+
+Z2M devices use string IDs:
+```json
+{
+  "name": "kitchen_temperature_display",
+  "type": "zigbee",
+  "resources": [
+    { "id": "temperature", "type": "analogInput" },
+    { "id": "humidity", "type": "analogInput" },
+    { "id": "battery", "type": "analogInput" }
   ]
 }
 ```
 
 - `bypassSignalState: true` — signals bypass the S (signal) tier and go directly to the device driver. Driver manages state via notification loop (IHC). Master sends commands to edge only, does NOT inject synthetic state.
-- `bypassSignalState: false` (or absent) — externally polled (Modbus). Master injects synthetic state locally AND sends to edge.
-- `resources` — list of valid IHC resource IDs. Used by the master to validate blueprint pin references (replaces blind trust of IHC pins).
+- `bypassSignalState: false` (or absent) — externally polled (Modbus) or event-driven (Z2M). Master injects synthetic state locally AND sends to edge.
+- `resources` — list of valid resource IDs (numeric for IHC, string for Z2M). Used by the master to validate blueprint pin references.
 
 ## Other Topics
 
@@ -369,7 +435,7 @@ The master determines device capabilities from the edge catalog:
 |---|---|---|
 | `status` | Edge → Master | Edge online/offline status |
 | `identity` | Edge → Master | Edge public key for auth |
-| `catalog` | Edge → Master | Device catalog (available hardware) |
+| `catalog` | Edge → Master | Device catalog (available hardware, republished on Z2M discovery) |
 | `runtime/status` | Edge → Master | Rule runtime status (running/stopped/error) |
 | `runtime/rules` | Edge → Master | Count of loaded rules |
 | `blueprint/activated` | Both | Active blueprint info |
@@ -379,16 +445,19 @@ The master determines device capabilities from the edge catalog:
 
 ## Adding a New Driver
 
-When adding a new hardware protocol (e.g., Zigbee, Z-Wave):
+When adding a new hardware protocol:
 
-1. Implement `DeviceDriver` interface (HandleSignal, SetOutput, BypassSignalState)
+1. Implement `DeviceDriver` interface (`HandleSignal`, `SetOutput`, `BypassSignalState`)
+   - Pin type is `any` — numeric (IHC, Modbus) or string (Z2M)
 2. Call `IPCBridge.UpdatePhysicalStateByAddress(ctx, device, type, pin, value, timestamp)` for state updates
+   - Callers are responsible for pre-filtering (Z2M filters by ResourceMap, IHC publishes all)
 3. State automatically flows to both:
    - Edge runtime (local IPC via ResourceMap lookup)
    - Master (MQTT `device/{name}/pin/{pin}` → address-to-resourceId mapping)
 4. Add device to edge catalog so master recognizes it:
    - Set `BypassSignalState: true` if the driver manages its own state loop
-   - Include `Resources` list if pins aren't contiguous ranges (for master-side validation)
+   - Include `Resources` list with `id` (numeric or string) for master-side pin validation
 5. Register driver in `EdgeActionHandler` for command dispatch
 6. Wire `resourceCmdSub.SetDrivers(drivers)` and `resourceSignalSub.SetDrivers(drivers)` in `main.go`
 7. View tap/longPress will automatically use the correct strategy based on `BypassSignalState`
+8. For MQTT-based protocols (like Z2M): use `broker.SubscribeRaw()` / `broker.PublishRaw()` for topics outside the `uhn/{edge}/` namespace

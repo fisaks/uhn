@@ -58,13 +58,24 @@ type EdgeSubscriber interface {
 // StateUpdater is the interface drivers use to push physical state updates
 // to the IPCBridge. This avoids a direct dependency on the runtime package.
 type StateUpdater interface {
-	UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64)
+	UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin any, value any, timestamp int64)
 }
 
 // PhysicalStateReader provides read access to the latest physical state by device address.
 // Used by transports that need to check gatekeeper state before sending commands.
 type PhysicalStateReader interface {
-	ReadPhysicalStateByAddress(device, resourceType string, pin int) (value any, ok bool)
+	ReadPhysicalStateByAddress(device, resourceType string, pin any) (value any, ok bool)
+}
+
+// ResourceLookup checks if a physical resource exists in the current blueprint's ResourceMap.
+// Used by Z2M transport to filter: only publish properties that are exported in the blueprint.
+type ResourceLookup interface {
+	// HasResourceMap returns true if a ResourceMap has been built (blueprint loaded).
+	HasResourceMap() bool
+	// HasResourceForAddress returns true if the given address exists in the ResourceMap.
+	HasResourceForAddress(device, resourceType string, pin any) bool
+	// GetDecimalPrecisionForAddress returns the decimal precision for a resource, or -1 if not set.
+	GetDecimalPrecisionForAddress(device, resourceType string, pin any) int
 }
 
 // DeviceTransport manages the connection lifecycle for a hardware transport layer.
@@ -84,9 +95,9 @@ type DeviceTransport interface {
 // branching on protocol type.
 type DeviceDriver interface {
 	// HandleSignal forwards a signal to the physical device.
-	HandleSignal(ctx context.Context, resourceID int, value any) error
+	HandleSignal(ctx context.Context, pin any, value any) error
 	// SetOutput writes an output value to the physical device.
-	SetOutput(ctx context.Context, resourceID int, value any) error
+	SetOutput(ctx context.Context, pin any, value any) error
 	// BypassSignalState returns true if signal overrides (S) should be skipped
 	// for this driver. When true, emitSignal forwards to the device instead of
 	// setting local signal state — the device's controller is the source of

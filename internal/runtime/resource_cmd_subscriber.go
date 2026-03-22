@@ -153,7 +153,7 @@ func (s *ResourceCmdSubscriber) lookupResource(rm *ResourceMap, resourceID strin
 }
 
 func (s *ResourceCmdSubscriber) getOwningDriver(resource *RuntimeResource) (uhn.DeviceDriver, bool) {
-	if s.drivers == nil || resource.Pin == nil {
+	if s.drivers == nil || resource == nil || resource.Pin == nil {
 		return nil, false
 	}
 	driver, ok := s.drivers[resource.Device]
@@ -171,15 +171,15 @@ func (s *ResourceCmdSubscriber) getOwningDriver(resource *RuntimeResource) (uhn.
 // State flows back via the driver's notification mechanism (IHC SOAP notifications).
 func (s *ResourceCmdSubscriber) autoPulseDriver(ctx context.Context, resourceID string, resource *RuntimeResource, driver uhn.DeviceDriver) {
 	logging.Info("ResourceCmdSubscriber: auto-pulse driver",
-		"resourceId", resourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+		"resourceId", resourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin))
 
-	if err := driver.HandleSignal(ctx, *resource.Pin, true); err != nil {
+	if err := driver.HandleSignal(ctx, resource.Pin, true); err != nil {
 		logging.Error("ResourceCmdSubscriber: auto-pulse true failed",
 			"resourceId", resourceID, "error", err)
 		return
 	}
 
-	pin := *resource.Pin
+	pin := resource.Pin
 	go func() {
 		time.Sleep(driverPulseMs * time.Millisecond)
 		if err := driver.HandleSignal(ctx, pin, false); err != nil {
@@ -194,15 +194,15 @@ func (s *ResourceCmdSubscriber) autoPulseDriver(ctx context.Context, resourceID 
 func (s *ResourceCmdSubscriber) holdDriverSignal(ctx context.Context, resourceID string, resource *RuntimeResource, driver uhn.DeviceDriver, holdMs int64) {
 	logging.Info("ResourceCmdSubscriber: hold driver signal",
 		"resourceId", resourceID, "device", resource.Device,
-		"pin", config.FormatPin(*resource.Pin), "holdMs", holdMs)
+		"pin", config.FormatPin(resource.Pin), "holdMs", holdMs)
 
-	if err := driver.HandleSignal(ctx, *resource.Pin, true); err != nil {
+	if err := driver.HandleSignal(ctx, resource.Pin, true); err != nil {
 		logging.Error("ResourceCmdSubscriber: hold signal true failed",
 			"resourceId", resourceID, "error", err)
 		return
 	}
 
-	pin := *resource.Pin
+	pin := resource.Pin
 	go func() {
 		time.Sleep(time.Duration(holdMs) * time.Millisecond)
 		if err := driver.HandleSignal(ctx, pin, false); err != nil {

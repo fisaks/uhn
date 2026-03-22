@@ -1,0 +1,28 @@
+# Zigbee2MQTT configuration template
+# Copy to configuration.yaml to enable Z2M:
+#   cp configuration.yaml.template configuration.yaml
+#
+# Z2M will auto-generate: network key, PAN ID, and device entries on first run.
+# The serial port may vary — check `ls /dev/ttyUSB*` or `/dev/serial/by-id/`.
+
+homeassistant:
+  enabled: false
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://uhn-mosquitto:1883
+serial:
+  port: /dev/ttyUSB0
+  adapter: ember
+frontend:
+  enabled: true
+  port: 8080
+advanced:
+  channel: 11
+  last_seen: epoch
+  log_level: info
+availability:
+  enabled: true
+  active:
+    timeout: 2
+  passive:
+    timeout: 1500

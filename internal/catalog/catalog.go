@@ -2,9 +2,10 @@ package catalog
 
 import (
 	"context"
-	"fmt"
+	"sync"
 
 	"github.com/fisaks/uhn/internal/config"
+	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/messaging"
 )
 
@@ -12,11 +13,11 @@ type EdgeCatalogMessage struct {
 	Devices []DeviceSummary `json:"devices"`
 }
 
-// CatalogResource describes a single resource on a device (IHC: individual resource IDs).
+// CatalogResource describes a single resource on a device.
+// ID is numeric for IHC (resource ID) and string for Z2M (property name).
 type CatalogResource struct {
-	ID    int    `json:"id"`
-	HexID string `json:"hexId"` // hex representation for debugging (e.g. "0x9F045C")
-	Type  string `json:"type"`  // digitalOutput, digitalInput, analogOutput, analogInput
+	ID   any    `json:"id"`   // int (IHC) or string (Z2M property name)
+	Type string `json:"type"` // digitalOutput, digitalInput, analogOutput, analogInput
 }
 
 type DeviceSummary struct {
@@ -34,7 +35,12 @@ type DeviceSummary struct {
 }
 
 type Catalog struct {
-	cfg *config.EdgeConfig
+	cfg    *config.EdgeConfig
+	broker messaging.Broker
+
+	// Z2M devices added dynamically after bridge/devices discovery
+	zigbeeDevicesMu sync.RWMutex
+	zigbeeDevices   []DeviceSummary
 }
 
 func NewEdgeCatalog(cfg *config.EdgeConfig) *Catalog {
@@ -43,6 +49,29 @@ func NewEdgeCatalog(cfg *config.EdgeConfig) *Catalog {
 	}
 	return &cat
 }
+
+// SetBroker sets the MQTT broker for republishing catalog on Z2M discovery.
+func (catalog *Catalog) SetBroker(broker messaging.Broker) {
+	catalog.broker = broker
+}
+
+// AddZigbeeDevices adds Z2M devices to the catalog and republishes.
+func (catalog *Catalog) AddZigbeeDevices(ctx context.Context, devices []DeviceSummary) {
+	catalog.zigbeeDevicesMu.Lock()
+	catalog.zigbeeDevices = devices
+	catalog.zigbeeDevicesMu.Unlock()
+
+	// Republish catalog with Z2M devices
+	if catalog.broker != nil {
+		msg := catalog.buildEdgeCatalog()
+		if err := catalog.broker.PublishJSON(ctx, "catalog", messaging.AtLeastOnce, true, msg); err != nil {
+			logging.Error("Catalog: failed to republish after Z2M discovery", "error", err)
+		} else {
+			logging.Info("Catalog: republished with Z2M devices", "zigbeeDevices", len(devices))
+		}
+	}
+}
+
 func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 	var devices []DeviceSummary
 	for _, devs := range catalog.cfg.Devices {
@@ -66,9 +95,8 @@ func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 		var resources []CatalogResource
 		for _, r := range ctrl.Resources {
 			resources = append(resources, CatalogResource{
-			ID:    r.ResourceIntID,
-			HexID: fmt.Sprintf("0x%X", r.ResourceIntID),
-			Type:  r.Type,
+			ID:   r.ResourceIntID,
+			Type: r.Type,
 		})
 		}
 		devices = append(devices, DeviceSummary{
@@ -93,6 +121,11 @@ func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 			})
 		}
 	}
+
+	// Include Z2M devices (dynamically discovered)
+	catalog.zigbeeDevicesMu.RLock()
+	devices = append(devices, catalog.zigbeeDevices...)
+	catalog.zigbeeDevicesMu.RUnlock()
 
 	return &EdgeCatalogMessage{Devices: devices}
 }

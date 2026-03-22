@@ -5,5 +5,5 @@ tmp_dir = "tmp"
 cmd = "go build -o tmp/edge ./cmd/server/edge"
 bin = "tmp/edge"
 include_ext = ["go","json"]
-exclude_dir = ["tmp", "vendor"]
+exclude_dir = ["tmp", "vendor", "zigbee2mqtt"]
 pre_cmd = ["jq --arg port \"$EDGE_PORT\" '.buses[0].port = $port' $SIM_BASE_CONFIG > $UHN_EDGE_CONFIG_PATH"]

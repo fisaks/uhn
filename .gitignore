@@ -50,3 +50,5 @@ config/devserver-live.conf
 /milight-sim
 /edge
 .pytest_cache/
+/zigbee2mqtt/data/*
+!/zigbee2mqtt/data/configuration.yaml.template

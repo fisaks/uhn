@@ -115,6 +115,22 @@ type EdgeConfig struct {
 
 	// Mi-Light gateways (optional, can coexist with Modbus and IHC)
 	Milights []*MilightConfig `json:"milights,omitempty"`
+
+	// Zigbee adapters via Zigbee2MQTT (optional, can coexist with all other protocols)
+	Zigbee []*ZigbeeAdapterConfig `json:"zigbee,omitempty"`
+}
+
+// ZigbeeAdapterConfig configures a Zigbee2MQTT adapter connection.
+type ZigbeeAdapterConfig struct {
+	Name      string                `json:"name"`                // adapter name, e.g. "zigbee_1"
+	BaseTopic string                `json:"baseTopic,omitempty"` // Z2M base topic, default "zigbee2mqtt"
+	Devices   []*ZigbeeDeviceConfig `json:"devices"`             // devices to expose to blueprints
+}
+
+// ZigbeeDeviceConfig configures a single Z2M device exposed to blueprints.
+type ZigbeeDeviceConfig struct {
+	Name       string `json:"name"`                 // Z2M friendly name, e.g. "kitchen_temperature_display"
+	Optimistic *bool  `json:"optimistic,omitempty"` // override Z2M optimistic setting (nil = don't change)
 }
 
 type BusConfig struct {
@@ -271,9 +287,10 @@ func (c *EdgeConfig) Validate() error {
 	hasModbus := len(c.Buses) > 0 || len(c.Catalog) > 0 || len(c.Devices) > 0
 	hasIHC := len(c.IHCControllers) > 0
 	hasMilight := len(c.Milights) > 0
+	hasZigbee := len(c.Zigbee) > 0
 
-	if !hasModbus && !hasIHC && !hasMilight {
-		errs.add("at least one device source required (buses/catalog/devices for Modbus, ihcControllers for IHC, or milights for Mi-Light)")
+	if !hasModbus && !hasIHC && !hasMilight && !hasZigbee {
+		errs.add("at least one device source required (buses/catalog/devices for Modbus, ihcControllers for IHC, milights for Mi-Light, or zigbee for Zigbee2MQTT)")
 	}
 
 	/* Buses */
@@ -443,6 +460,11 @@ func (c *EdgeConfig) Validate() error {
 		c.validateMilight(&errs)
 	}
 
+	/* Zigbee Adapters */
+	if hasZigbee {
+		c.validateZigbee(&errs)
+	}
+
 	if len(errs) > 0 {
 		return errs
 	}
@@ -466,6 +488,15 @@ func (c *EdgeConfig) Validate() error {
 				return fmt.Errorf("Mi-Light zone name %q collides with a %s device name", zone.Name, src)
 			}
 			allNames[zone.Name] = "Mi-Light"
+		}
+	}
+
+	for _, z := range c.Zigbee {
+		for _, dev := range z.Devices {
+			if src, ok := allNames[dev.Name]; ok {
+				return fmt.Errorf("Zigbee device name %q collides with a %s device name", dev.Name, src)
+			}
+			allNames[dev.Name] = "Zigbee"
 		}
 	}
 
@@ -654,10 +685,19 @@ func FormatHexID(id int) string {
 	return fmt.Sprintf("0x%X", id)
 }
 
-// FormatPin formats a pin/address as "decimal (0xHEX)" for logging.
-// Shows both formats so logs are readable for both Modbus (small ints) and IHC (hex IDs).
-func FormatPin(id int) string {
-	return fmt.Sprintf("%d (0x%X)", id, id)
+// FormatPin formats a pin of any type for logging.
+// Numeric pins (float64/int): "decimal (0xHEX)". String pins: as-is.
+func FormatPin(pin any) string {
+	switch v := pin.(type) {
+	case float64:
+		return fmt.Sprintf("%d (0x%X)", int(v), int(v))
+	case int:
+		return fmt.Sprintf("%d (0x%X)", v, v)
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func loadIHCCredentials(path string) (ihcCredentialsFile, error) {
@@ -753,6 +793,53 @@ func (c *EdgeConfig) validateMilight(errs *multiErr) {
 		}
 
 		c.Milights[i] = ml
+	}
+}
+
+/* =========================
+   Zigbee validation
+   ========================= */
+
+func (c *EdgeConfig) validateZigbee(errs *multiErr) {
+	seenAdapterNames := map[string]bool{}
+	seenDeviceNames := map[string]string{} // device name → adapter name (for cross-adapter uniqueness)
+	for i, z := range c.Zigbee {
+		prefix := fmt.Sprintf("zigbee[%d/%s]", i, z.Name)
+
+		if strings.TrimSpace(z.Name) == "" {
+			errs.addf("zigbee[%d]: name is required", i)
+		} else if seenAdapterNames[z.Name] {
+			errs.addf("%s: duplicate adapter name", prefix)
+		} else {
+			seenAdapterNames[z.Name] = true
+		}
+
+		// Default baseTopic
+		if z.BaseTopic == "" {
+			z.BaseTopic = "zigbee2mqtt"
+		}
+
+		// Validate devices
+		seenInAdapter := map[string]bool{}
+		for j, dev := range z.Devices {
+			devPrefix := fmt.Sprintf("%s.devices[%d/%s]", prefix, j, dev.Name)
+			if strings.TrimSpace(dev.Name) == "" {
+				errs.addf("%s.devices[%d]: name is required", prefix, j)
+			} else {
+				if seenInAdapter[dev.Name] {
+					errs.addf("%s: duplicate device name within adapter", devPrefix)
+				} else {
+					seenInAdapter[dev.Name] = true
+				}
+				if otherAdapter, clash := seenDeviceNames[dev.Name]; clash {
+					errs.addf("%s: duplicate device name (already in adapter %s)", devPrefix, otherAdapter)
+				} else {
+					seenDeviceNames[dev.Name] = z.Name
+				}
+			}
+		}
+
+		c.Zigbee[i] = z
 	}
 }
 

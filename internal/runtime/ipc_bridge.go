@@ -50,6 +50,7 @@ type IPCBridge struct {
 	logicalResourceStatePublisher    *LogicalResourceStatePublisher
 	logicalResourceStateSubscriber   *LogicalResourceStateSubscriber
 	devicePinStatePublisher          *DevicePinStatePublisher
+	onResourceMapReady               func(ctx context.Context) // called after ResourceMap is built
 
 	broker messaging.Broker
 }
@@ -85,6 +86,12 @@ func (b *IPCBridge) SetLogicalResourceStateSubscriber(sub *LogicalResourceStateS
 // Used by IHC and future drivers that produce individual typed values.
 func (b *IPCBridge) SetDevicePinStatePublisher(pub *DevicePinStatePublisher) {
 	b.devicePinStatePublisher = pub
+}
+
+// SetOnResourceMapReady sets a callback invoked after the ResourceMap is built.
+// Used by Z2M transport to replay cached state.
+func (b *IPCBridge) SetOnResourceMapReady(fn func(ctx context.Context)) {
+	b.onResourceMapReady = fn
 }
 
 // SetBroker sets the MQTT broker for publishing runtime rules.
@@ -135,7 +142,7 @@ func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh c
 
 		// Resources loaded event
 		case msg.Kind == "event" && msg.Cmd == "resourcesLoaded":
-			b.handleResourcesLoaded(line)
+			b.handleResourcesLoaded(ctx, line)
 
 		// Log event
 		case msg.Kind == "event" && msg.Cmd == "log":
@@ -261,17 +268,17 @@ func (b *IPCBridge) HandleDeviceState(ctx context.Context, state uhn.DeviceState
 	}
 }
 
-// UpdatePhysicalStateByAddress publishes per-pin physical state to MQTT and,
-// if a ResourceMap is available, resolves the address to a resource ID and
-// updates the local runtime state. Used by IHC and future drivers that produce
-// individual typed values (vs Modbus byte-array DeviceState).
+// UpdatePhysicalStateByAddress caches state by address, publishes per-pin
+// physical state to MQTT, and (if a ResourceMap is available) resolves the
+// address to a resource ID and updates the local runtime state.
 //
-// MQTT publishing happens unconditionally (physical state is hardware-level
-// and independent of blueprint). Local runtime state update requires an
-// active blueprint with a ResourceMap.
-func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin int, value any, timestamp int64) {
+// Callers are responsible for pre-filtering — IHC publishes all notifications
+// unconditionally, Z2M filters by ResourceMap (only blueprint-relevant
+// properties). The physicalByAddress cache is always updated regardless
+// (used for gatekeeper checks).
+func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, resourceType string, pin any, value any, timestamp int64) {
 	// Update address-keyed cache (unconditional, no blueprint needed)
-	addrKey := fmt.Sprintf("%s:%s:%d", device, resourceType, pin)
+	addrKey := fmt.Sprintf("%s:%s:%s", device, resourceType, formatPinForKey(pin))
 	b.stateMu.Lock()
 	b.physicalByAddress[addrKey] = value
 	b.stateMu.Unlock()
@@ -297,12 +304,42 @@ func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, re
 
 // ReadPhysicalStateByAddress reads the latest physical state for a device address.
 // Returns (value, true) if state exists, (nil, false) if unknown.
-func (b *IPCBridge) ReadPhysicalStateByAddress(device, resourceType string, pin int) (any, bool) {
-	addrKey := fmt.Sprintf("%s:%s:%d", device, resourceType, pin)
+func (b *IPCBridge) ReadPhysicalStateByAddress(device, resourceType string, pin any) (any, bool) {
+	addrKey := fmt.Sprintf("%s:%s:%s", device, resourceType, formatPinForKey(pin))
 	b.stateMu.RLock()
 	v, ok := b.physicalByAddress[addrKey]
 	b.stateMu.RUnlock()
 	return v, ok
+}
+
+// HasResourceMap returns true if the ResourceMap has been built (blueprint loaded).
+func (b *IPCBridge) HasResourceMap() bool {
+	return b.getResourceMap() != nil
+}
+
+// GetDecimalPrecisionForAddress returns the decimal precision for a resource, or -1 if not set.
+func (b *IPCBridge) GetDecimalPrecisionForAddress(device, resourceType string, pin any) int {
+	rm := b.getResourceMap()
+	if rm == nil {
+		return -1
+	}
+	r, ok := rm.LookupByAddress(device, resourceType, pin)
+	if !ok || r.DecimalPrecision == nil {
+		return -1
+	}
+	return *r.DecimalPrecision
+}
+
+// HasResourceForAddress returns true if the current blueprint has a resource
+// matching the given device/type/pin address. Used by Z2M transport to filter
+// properties before publishing to MQTT.
+func (b *IPCBridge) HasResourceForAddress(device, resourceType string, pin any) bool {
+	rm := b.getResourceMap()
+	if rm == nil {
+		return false
+	}
+	_, ok := rm.LookupResourceID(device, resourceType, pin)
+	return ok
 }
 
 // getResourceMap returns the current resource map (nil if runtime not ready).
@@ -578,7 +615,7 @@ func (b *IPCBridge) handleRulesLoaded(ctx context.Context, raw []byte) {
 }
 
 // handleResourcesLoaded processes the resourcesLoaded event and builds the resource map.
-func (b *IPCBridge) handleResourcesLoaded(raw []byte) {
+func (b *IPCBridge) handleResourcesLoaded(ctx context.Context, raw []byte) {
 	var event ResourcesLoadedEvent
 	if err := json.Unmarshal(raw, &event); err != nil {
 		logging.Error("Failed to parse resourcesLoaded event", "error", err)
@@ -586,11 +623,17 @@ func (b *IPCBridge) handleResourcesLoaded(raw []byte) {
 	}
 
 	rm := NewResourceMap(b.edgeName, event.Resources)
+
 	b.resourceMapMu.Lock()
 	b.resourceMap = rm
 	b.resourceMapMu.Unlock()
 
 	logging.Info("IPC bridge resource map built", "resources", len(rm.byResourceID))
+
+	// Notify listeners (e.g. Z2M transport replays cached state)
+	if b.onResourceMapReady != nil {
+		b.onResourceMapReady(ctx)
+	}
 }
 
 // clearRuntimeRules publishes an empty retained message to clear the runtime/rules topic.

@@ -44,7 +44,10 @@ func (h *DeviceCommandHandler) OnDeviceCommand(ctx context.Context, command uhn.
 	}
 
 	action := strings.ToLower(command.Action)
-	address := util.ToInt(command.Address)
+
+	// Pass address as-is for driver devices (Z2M uses string pins like "state").
+	// Non-driver devices (Modbus) go through the delegate which handles int conversion.
+	address := command.Address
 
 	switch action {
 	case "setdigitaloutput":
@@ -63,7 +66,7 @@ func (h *DeviceCommandHandler) OnCommand(ctx context.Context, command uhn.Incomi
 	return h.delegate.OnCommand(ctx, command)
 }
 
-func (h *DeviceCommandHandler) handleDigitalOutput(ctx context.Context, device string, pin int, rawValue any, driver uhn.DeviceDriver) error {
+func (h *DeviceCommandHandler) handleDigitalOutput(ctx context.Context, device string, pin any, rawValue any, driver uhn.DeviceDriver) error {
 	value := util.ToUint16(rawValue)
 
 	var boolValue bool
@@ -86,7 +89,7 @@ func (h *DeviceCommandHandler) handleDigitalOutput(ctx context.Context, device s
 	return driver.SetOutput(ctx, pin, boolValue)
 }
 
-func (h *DeviceCommandHandler) handleAnalogOutput(ctx context.Context, device string, pin int, rawValue any, driver uhn.DeviceDriver) error {
+func (h *DeviceCommandHandler) handleAnalogOutput(ctx context.Context, device string, pin any, rawValue any, driver uhn.DeviceDriver) error {
 	logging.Debug("DeviceCommandHandler: setAnalogOutput via driver",
 		"device", device, "pin", config.FormatPin(pin), "value", rawValue)
 	return driver.SetOutput(ctx, pin, rawValue)
@@ -94,7 +97,7 @@ func (h *DeviceCommandHandler) handleAnalogOutput(ctx context.Context, device st
 
 // getCurrentBoolState reads the current computed state for a resource by physical address.
 // Returns false if the state is unknown or not boolean.
-func (h *DeviceCommandHandler) getCurrentBoolState(device, resourceType string, pin int) bool {
+func (h *DeviceCommandHandler) getCurrentBoolState(device, resourceType string, pin any) bool {
 	rm := h.ipcBridge.getResourceMap()
 	if rm == nil {
 		return false

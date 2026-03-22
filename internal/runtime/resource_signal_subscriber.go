@@ -69,8 +69,8 @@ func (s *ResourceSignalSubscriber) OnMessage(ctx context.Context, topic string, 
 			if resource, ok := rm.LookupResource(resourceID); ok && resource.Pin != nil {
 				if driver, dOk := s.drivers[resource.Device]; dOk && driver.BypassSignalState() {
 					logging.Debug("ResourceSignalSubscriber: forwarding signal to driver",
-						"resourceId", resourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
-					if err := driver.HandleSignal(ctx, *resource.Pin, msg.Value); err != nil {
+						"resourceId", resourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin))
+					if err := driver.HandleSignal(ctx, resource.Pin, msg.Value); err != nil {
 						logging.Error("ResourceSignalSubscriber: driver signal error",
 							"resourceId", resourceID, "device", resource.Device, "error", err)
 					}

@@ -7,4 +7,4 @@ bin = "tmp/milight-sim"
 
 include_ext = ["go","json"]
 include_dir = ["cmd/tools/milight-sim", "internal/milightsim", "internal/milight", "internal/config", "config"]
-exclude_dir = ["tmp", "vendor"]
+exclude_dir = ["tmp", "vendor", "zigbee2mqtt"]

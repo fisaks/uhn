@@ -10,6 +10,7 @@ import (
 	"github.com/fisaks/uhn/internal/config"
 	"github.com/fisaks/uhn/internal/logging"
 	"github.com/fisaks/uhn/internal/uhn"
+	"github.com/fisaks/uhn/internal/util"
 )
 
 // IHCDriver manages the lifecycle of a single IHC controller connection.
@@ -355,7 +356,11 @@ func (d *IHCDriver) performHealthCheck(ctx context.Context) bool {
 // HandleSignal forwards a signal (e.g., emitSignal for a writable IHC input)
 // to the IHC controller via setResourceValue. The controller's function blocks
 // react to the input change and the resulting state flows back through notifications.
-func (d *IHCDriver) HandleSignal(ctx context.Context, resourceID int, value any) error {
+func (d *IHCDriver) HandleSignal(ctx context.Context, pin any, value any) error {
+	resourceID, ok := util.ToIntOk(pin)
+	if !ok {
+		return fmt.Errorf("IHC HandleSignal: expected numeric pin, got %T", pin)
+	}
 	ihcValue, err := anyToIHCValue(resourceID, value, d.resourceTypes)
 	if err != nil {
 		return err
@@ -367,7 +372,11 @@ func (d *IHCDriver) HandleSignal(ctx context.Context, resourceID int, value any)
 }
 
 // SetOutput writes an output value (relay, dimmer) to the IHC controller.
-func (d *IHCDriver) SetOutput(ctx context.Context, resourceID int, value any) error {
+func (d *IHCDriver) SetOutput(ctx context.Context, pin any, value any) error {
+	resourceID, ok := util.ToIntOk(pin)
+	if !ok {
+		return fmt.Errorf("IHC SetOutput: expected numeric pin, got %T", pin)
+	}
 	ihcValue, err := anyToIHCValue(resourceID, value, d.resourceTypes)
 	if err != nil {
 		return err
@@ -377,6 +386,7 @@ func (d *IHCDriver) SetOutput(ctx context.Context, resourceID int, value any) er
 		return err
 	})
 }
+
 
 // withReauth executes fn and retries once after a full reconnect (reauth +
 // re-enable notifications) if the session has expired. This ensures commands

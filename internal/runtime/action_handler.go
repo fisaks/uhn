@@ -10,6 +10,7 @@ import (
 	"github.com/fisaks/uhn/internal/messaging"
 	"github.com/fisaks/uhn/internal/poller"
 	"github.com/fisaks/uhn/internal/uhn"
+	"github.com/fisaks/uhn/internal/util"
 )
 
 // EdgeActionHandler handles actions emitted by the edge rule runtime.
@@ -83,35 +84,36 @@ func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action R
 		return
 	}
 
-	// Try device driver first (IHC, future Zigbee/Mi Light)
+	// Try device driver first (IHC, Zigbee, Mi-Light)
 	if driver, ok := h.drivers[resource.Device]; ok {
-		if err := driver.SetOutput(ctx, *resource.Pin, action.Value); err != nil {
+		if err := driver.SetOutput(ctx, resource.Pin, action.Value); err != nil {
 			logging.Error("setDigitalOutput: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
 		} else {
-			logging.Debug("setDigitalOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+			logging.Debug("setDigitalOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin))
 		}
 		return
 	}
 
-	// Fall back to bus pollers
+	// Fall back to bus pollers (numeric pins only)
 	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
 	if bp == nil || device == nil {
 		logging.Warn("setDigitalOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
 		return
 	}
 
+	pinInt := util.ToUint16(resource.Pin)
 	value := boolToUint16(action.Value)
 	cmd := uhn.DeviceCommand{
 		Device:  device,
 		Action:  "setdigitaloutput",
-		Address: uint16(*resource.Pin),
+		Address: pinInt,
 		Value:   value,
 	}
 
 	if !bp.PushCommand(cmd) {
 		logging.Warn("setDigitalOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
 	} else {
-		logging.Debug("setDigitalOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(*resource.Pin), "value", value)
+		logging.Debug("setDigitalOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(pinInt), "value", value)
 	}
 }
 
@@ -127,35 +129,36 @@ func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action Ru
 		return
 	}
 
-	// Try device driver first (IHC, future Zigbee/Mi Light)
+	// Try device driver first (IHC, Zigbee, Mi-Light)
 	if driver, ok := h.drivers[resource.Device]; ok {
-		if err := driver.SetOutput(ctx, *resource.Pin, action.Value); err != nil {
+		if err := driver.SetOutput(ctx, resource.Pin, action.Value); err != nil {
 			logging.Error("setAnalogOutput: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
 		} else {
-			logging.Debug("setAnalogOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+			logging.Debug("setAnalogOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin))
 		}
 		return
 	}
 
-	// Fall back to bus pollers
+	// Fall back to bus pollers (numeric pins only)
 	bp, device := h.pollers.FindPollerAndDeviceByDeviceName(resource.Device)
 	if bp == nil || device == nil {
 		logging.Warn("setAnalogOutput: device not found", "resourceId", action.ResourceID, "device", resource.Device)
 		return
 	}
 
+	pinInt := util.ToUint16(resource.Pin)
 	value := toUint16Value(action.Value)
 	cmd := uhn.DeviceCommand{
 		Device:  device,
 		Action:  "setanalogoutput",
-		Address: uint16(*resource.Pin),
+		Address: pinInt,
 		Value:   value,
 	}
 
 	if !bp.PushCommand(cmd) {
 		logging.Warn("setAnalogOutput: command buffer full", "resourceId", action.ResourceID, "device", resource.Device)
 	} else {
-		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(*resource.Pin), "value", value)
+		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(pinInt), "value", value)
 	}
 }
 
@@ -186,10 +189,10 @@ func (h *EdgeActionHandler) handleEmitSignal(ctx context.Context, action Runtime
 			// The controller is the source of truth — state comes back through
 			// the notification loop as physical state (P).
 			// Setting S would mask P since C = S ?? P.
-			if err := driver.HandleSignal(ctx, *resource.Pin, action.Value); err != nil {
+			if err := driver.HandleSignal(ctx, resource.Pin, action.Value); err != nil {
 				logging.Error("emitSignal: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
 			} else {
-				logging.Debug("emitSignal forwarded to driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(*resource.Pin))
+				logging.Debug("emitSignal forwarded to driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin))
 			}
 			return
 		}

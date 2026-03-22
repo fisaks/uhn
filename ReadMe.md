@@ -136,7 +136,7 @@ or just `make install-tools`
 
 Starts the development server in a tmux session with two windows:
 - **dev** — MQTT monitor, Mosquitto logs, edge server, empty shell
-- **sims** — Modbus simulator, IHC simulator, Mi-Light simulator
+- **sims** — Modbus simulator, IHC simulator, Mi-Light simulator, Zigbee (Z2M logs or simulator)
 
 ### Profiles
 
@@ -149,9 +149,11 @@ Starts the development server in a tmux session with two windows:
 
 Each profile uses two files:
 - `config/edge-config-{profile}.json` — edge configuration
-- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`, `MILIGHT_SIM`)
+- `config/devserver-{profile}.conf` — simulator flags (`MODBUS_SIM`, `IHC_SIM`, `MILIGHT_SIM`, `ZIGBEE_SIM`)
 
 The `dev` profile runs all simulators. The `live` profile can be customized per-flag, e.g. `MODBUS_SIM=true` + `IHC_SIM=false` for real IHC with simulated Modbus.
+
+Zigbee USB dongle is auto-detected via `lsusb`. When detected, Z2M starts automatically. Override with `ZIGBEE_Z2M=true/false` in the conf file.
 
 Press `Ctrl-b + d` to detach the session. Switch windows with `Ctrl-b + n` / `Ctrl-b + p`.
 
@@ -363,6 +365,38 @@ curl -s -X POST http://localhost:8091/admin/start
 | `mode` | int | 1-9 | Effect mode |
 | `modeSpeedUp` | bool | | Increment effect speed (set to true) |
 | `modeSpeedDown` | bool | | Decrement effect speed (set to true) |
+
+### Zigbee2MQTT (Z2M)
+
+Z2M runs as a Docker container, managing Zigbee devices via a USB coordinator dongle. No simulator yet (Phase 1.1).
+
+#### Setup
+
+1. Copy the template config:
+   ```sh
+   cp zigbee2mqtt/data/configuration.yaml.template zigbee2mqtt/data/configuration.yaml
+   ```
+2. Adjust `serial.port` if needed (auto-detected path shown at devserver startup)
+3. Plug in USB Zigbee dongle, start devserver — Z2M starts automatically
+4. Z2M frontend: http://localhost:8081 (device pairing, settings, dev console)
+
+#### Edge config
+
+Z2M devices must be listed in the edge config to be processed:
+
+```json
+{
+    "zigbee": [{
+        "name": "zigbee_1",
+        "devices": [
+            { "name": "kitchen_temperature_display" },
+            { "name": "socket_plug_1", "optimistic": false }
+        ]
+    }]
+}
+```
+
+Only listed devices get state published, availability tracked, and drivers created. Properties are further filtered by the blueprint ResourceMap.
 
 ## Navigating the tmux Environment
 

@@ -14,8 +14,9 @@ import (
 	"github.com/fisaks/uhn/internal/encrypt"
 	"github.com/fisaks/uhn/internal/ihc"
 	"github.com/fisaks/uhn/internal/logging"
-	"github.com/fisaks/uhn/internal/milight"
 	"github.com/fisaks/uhn/internal/messaging"
+	"github.com/fisaks/uhn/internal/milight"
+	"github.com/fisaks/uhn/internal/zigbee"
 	"github.com/fisaks/uhn/internal/poller"
 	"github.com/fisaks/uhn/internal/runtime"
 	"github.com/fisaks/uhn/internal/uhn"
@@ -49,13 +50,14 @@ func main() {
 		"buses", len(cfg.Buses),
 		"ihcControllers", len(cfg.IHCControllers),
 		"milights", len(cfg.Milights),
+		"zigbee", len(cfg.Zigbee),
 		"pollMs", cfg.PollIntervalMs,
 		"runtimeMode", resolvedConfig.RuntimeMode,
 		"debugPort", resolvedConfig.DebugPort,
 	)
 
 	topicPrefix := "uhn/" + resolvedConfig.Name
-	catalog := catalog.NewEdgeCatalog(cfg)
+	edgeCatalog := catalog.NewEdgeCatalog(cfg)
 	keyPair, err := encrypt.NewEdgeKeyPair(resolvedConfig.Name, cfgPath)
 	if err != nil {
 		logging.Fatal("Failed to load or create edge key pair", "error", err)
@@ -71,7 +73,7 @@ func main() {
 		ConnectTimeout:   10 * time.Second,
 		PublishTimeout:   5 * time.Second,
 		SubscribeTimeout: 5 * time.Second,
-	}, catalog, time.Duration(cfg.HeartbeatInterval)*time.Second)
+	}, edgeCatalog, time.Duration(cfg.HeartbeatInterval)*time.Second)
 
 	edgeBroker.AddOnConnectPublisher("identity", keyPair)
 	edgeBroker.Connect(ctx)
@@ -158,6 +160,57 @@ func main() {
 			}
 		}
 
+		// Create Zigbee transports and drivers
+		var zigbeeTransports []*zigbee.ZigbeeTransport
+		edgeCatalog.SetBroker(edgeBroker)
+		for _, z2mCfg := range cfg.Zigbee {
+			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, edgeBroker)
+			// Called after bridge/devices: register drivers + republish catalog
+			transport.SetOnDevicesDiscovered(func() {
+				// Register any new Z2M drivers
+				for name, driver := range transport.GetDrivers() {
+					if _, exists := drivers[name]; !exists {
+						drivers[name] = driver
+					}
+				}
+				resourceSignalSub.SetDrivers(drivers)
+				resourceCmdSub.SetDrivers(drivers)
+
+				// Republish catalog with Z2M devices
+				z2mInfos := transport.GetDeviceInfos()
+				var z2mDevices []catalog.DeviceSummary
+				for _, info := range z2mInfos {
+					var resources []catalog.CatalogResource
+					for _, prop := range info.Properties {
+						resources = append(resources, catalog.CatalogResource{
+							ID:   prop.Name,
+							Type:     prop.Type,
+						})
+					}
+					z2mDevices = append(z2mDevices, catalog.DeviceSummary{
+						Name:      info.FriendlyName,
+						Type:      "zigbee",
+						Resources: resources,
+					})
+				}
+				edgeCatalog.AddZigbeeDevices(ctx, z2mDevices)
+			})
+			zigbeeTransports = append(zigbeeTransports, transport)
+			logging.Info("Zigbee transport created",
+				"adapter", z2mCfg.Name,
+				"baseTopic", z2mCfg.BaseTopic)
+		}
+
+		// Replay Z2M cached state when ResourceMap is built
+		if len(zigbeeTransports) > 0 {
+			transports := zigbeeTransports // capture for closure
+			ipcBridge.SetOnResourceMapReady(func(ctx context.Context) {
+				for _, tr := range transports {
+					tr.ReplayCachedState(ctx)
+				}
+			})
+		}
+
 		// Wire drivers into signal subscriber (IHC signal forwarding) and
 		// command subscriber (auto-pulse: tap → HandleSignal true→false)
 		if len(drivers) > 0 {
@@ -197,6 +250,13 @@ func main() {
 
 		// Start Mi-Light transports (no state on startup — assumed state begins on first command)
 		for _, tr := range milightTransports {
+			t := tr
+			go t.Start(ctx)
+			defer t.Stop()
+		}
+
+		// Start Zigbee transports (subscribe to Z2M topics, discover devices dynamically)
+		for _, tr := range zigbeeTransports {
 			t := tr
 			go t.Start(ctx)
 			defer t.Stop()

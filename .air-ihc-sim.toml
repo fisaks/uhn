@@ -7,4 +7,4 @@ bin = "tmp/ihc-sim"
 
 include_ext = ["go","json"]
 include_dir = ["cmd/tools/ihc-sim", "internal/ihcsim", "internal/ihc", "internal/config", "config"]
-exclude_dir = ["tmp", "vendor"]
+exclude_dir = ["tmp", "vendor", "zigbee2mqtt"]

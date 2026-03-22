@@ -3,13 +3,33 @@ services:
     image: eclipse-mosquitto:2
     container_name: uhn-mosquitto
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports: ["1883:1883"]
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
-    profiles: ["dev", "dev-real", "prod", "test"]
+    profiles: ["dev", "dev-real", "prod", "test", "zigbee"]
+
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt
+    container_name: uhn-zigbee2mqtt
+    restart: unless-stopped
+    ports: ["8081:8080"]
+    volumes:
+      - ./zigbee2mqtt/data:/app/data
+      - /run/udev:/run/udev:ro  # host udev database for USB device detection (/dev/serial/by-id/)
+    devices:
+      - ${ZIGBEE_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
+    privileged: true
+    group_add:
+      - dialout
+    environment:
+      - TZ=${TZ:-UTC}
+    depends_on: [mosquitto]
+    profiles: ["zigbee"]
 
   # Dev/Test: edge + simulator in same container using virtual PTYs
   edge-dev:
