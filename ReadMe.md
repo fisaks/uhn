@@ -391,14 +391,14 @@ Fixtures are captured from real Z2M via `./capture-z2m-fixtures.sh` (requires Z2
 curl -s http://localhost:8092/devices
 
 # Get a single device
-curl -s http://localhost:8092/device/socket_plug_1
+curl -s http://localhost:8092/device/portable-socket-plug
 
 # Set device properties
-curl -s -X PUT http://localhost:8092/device/socket_plug_1 \
+curl -s -X PUT http://localhost:8092/device/portable-socket-plug \
   -H 'Content-Type: application/json' -d '{"state": "ON"}'
 
 # Toggle state
-curl -s -X POST http://localhost:8092/device/socket_plug_1/toggle
+curl -s -X POST http://localhost:8092/device/portable-socket-plug/toggle
 
 # Re-publish bridge/devices to MQTT
 curl -s -X POST http://localhost:8092/admin/publish-devices
@@ -413,8 +413,8 @@ Z2M devices must be listed in the edge config to be processed:
     "zigbee": [{
         "name": "zigbee_1",
         "devices": [
-            { "name": "kitchen_temperature_display" },
-            { "name": "socket_plug_1", "optimistic": false }
+            { "name": "kitchen-temperature-display" },
+            { "name": "portable-socket-plug", "optimistic": false }
         ]
     }]
 }

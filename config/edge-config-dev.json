@@ -294,9 +294,9 @@
             "name": "zigbee_1",
             "baseTopic": "zigbee2mqtt-sim",
             "devices": [
-                { "name": "kitchen_temperature_display" },
-                { "name": "outdoor_temperature" },
-                { "name": "socket_plug_1", "optimistic": false }
+                { "name": "kitchen-temperature-display" },
+                { "name": "outdoor-temperature" },
+                { "name": "portable-socket-plug", "optimistic": false }
             ]
         }
     ],

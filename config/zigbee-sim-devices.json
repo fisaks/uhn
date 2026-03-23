@@ -379,7 +379,7 @@
       "vendor": "SONOFF"
     },
     "disabled": false,
-    "friendly_name": "socket_plug_1",
+    "friendly_name": "portable-socket-plug",
     "ieee_address": "0x00158d0001abcde1",
     "manufacturer": "SONOFF",
     "supported": true,
@@ -579,7 +579,7 @@
       "vendor": "SONOFF"
     },
     "disabled": false,
-    "friendly_name": "kitchen_temperature_display",
+    "friendly_name": "kitchen-temperature-display",
     "ieee_address": "0x00158d0001abcde2",
     "manufacturer": "SONOFF",
     "supported": true,
@@ -727,7 +727,7 @@
       "vendor": "SONOFF"
     },
     "disabled": false,
-    "friendly_name": "outdoor_temperature",
+    "friendly_name": "outdoor-temperature",
     "ieee_address": "0x00158d0001abcde3",
     "manufacturer": "SONOFF",
     "supported": true,
@@ -817,7 +817,7 @@
       "vendor": "IKEA"
     },
     "disabled": false,
-    "friendly_name": "button_panel_1",
+    "friendly_name": "portable-button-panel",
     "ieee_address": "0x00158d0001abcde4",
     "manufacturer": "IKEA of Sweden",
     "supported": true,
