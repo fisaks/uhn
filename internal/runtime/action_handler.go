@@ -68,6 +68,8 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 		logging.Warn("Timer action received on edge action handler (unexpected)", "type", action.Type, "resourceId", action.ResourceID)
 	case "emitAction":
 		h.handleEmitAction(ctx, action, resource)
+	case "setActionOutput":
+		h.handleSetActionOutput(ctx, action, resource)
 	case "mute", "clearMute":
 		h.handleMuteAction(ctx, action)
 	default:
@@ -294,6 +296,33 @@ func (h *EdgeActionHandler) handleEmitAction(ctx context.Context, action Runtime
 		logging.Error("emitAction: MQTT publish failed", "resourceId", action.ResourceID, "error", err)
 	} else {
 		logging.Debug("emitAction published", "resourceId", action.ResourceID, "action", action.Action, "depth", action.Depth)
+	}
+}
+
+// handleSetActionOutput sends a transient write-only command to the device driver.
+// No state model involvement — bypasses P/S/C entirely.
+func (h *EdgeActionHandler) handleSetActionOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	if resource == nil || resource.Type != "actionOutput" {
+		logging.Warn("setActionOutput on non-actionOutput resource",
+			"resourceId", action.ResourceID, "type", resourceTypeOrNil(resource))
+		return
+	}
+
+	if resource.Pin == nil {
+		logging.Warn("setActionOutput on resource without pin", "resourceId", action.ResourceID)
+		return
+	}
+
+	driver, ok := h.drivers[resource.Device]
+	if !ok {
+		logging.Warn("setActionOutput: no driver for device", "resourceId", action.ResourceID, "device", resource.Device)
+		return
+	}
+
+	if err := driver.SetOutput(ctx, resource.Pin, action.Action); err != nil {
+		logging.Error("setActionOutput: driver error", "resourceId", action.ResourceID, "device", resource.Device, "error", err)
+	} else {
+		logging.Debug("setActionOutput via driver", "resourceId", action.ResourceID, "device", resource.Device, "pin", config.FormatPin(resource.Pin), "action", action.Action)
 	}
 }
 

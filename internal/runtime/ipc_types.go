@@ -28,7 +28,7 @@ const MaxActionDepth = 10
 // RuntimeAction is emitted by the rule engine when a rule fires.
 // Fields are a superset of all action types; only relevant fields are populated.
 type RuntimeAction struct {
-	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute" | "emitAction"
+	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute" | "emitAction" | "setActionOutput"
 	ResourceID string `json:"resourceId,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	// emitAction-specific fields
@@ -145,7 +145,7 @@ type LogicalResourceMQTTPayload struct {
 // Consider refactoring into per-action structs with a shared envelope if more action types are added.
 type LogicalResourceCommandMQTTPayload struct {
 	ResourceID   string         `json:"resourceId"`
-	Action       string         `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState" | "action"
+	Action       string         `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState" | "action" | "setActionOutput"
 	Value        any            `json:"value,omitempty"`
 	DurationMs   int64          `json:"durationMs,omitempty"`
 	Mode         string         `json:"mode,omitempty"` // "restart" | "startOnce"

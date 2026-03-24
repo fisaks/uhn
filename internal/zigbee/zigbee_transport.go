@@ -442,6 +442,14 @@ func processExposes(exposes []json.RawMessage, dev *z2mDevice, prefix string) {
 			continue
 		}
 
+		// Write-only non-ON/OFF enum → actionOutput (transient fire-and-forget commands like light effects)
+		readable := expose.Access&1 != 0
+		if expose.Type == "enum" && writable && !readable && len(expose.Values) > 0 && !isOnOffEnum(expose.Values) {
+			dev.propertyTypes[prop] = "actionOutput"
+			dev.writableProperties[prop] = true
+			continue
+		}
+
 		uhnType := mapExposeToUHNType(expose.Type, writable, expose.Values)
 		if uhnType == "" {
 			continue

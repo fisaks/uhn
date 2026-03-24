@@ -82,6 +82,8 @@ func (s *ResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, pay
 		s.ipcBridge.HandleSetState(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
 	case "action":
 		s.forwardActionCommand(resourceID, msg)
+	case "setActionOutput":
+		s.forwardSetActionOutput(ctx, resourceID, msg)
 	default:
 		logging.Warn("ResourceCmdSubscriber: unknown action", "resourceId", resourceID, "action", msg.Action)
 	}
@@ -296,6 +298,44 @@ func (s *ResourceCmdSubscriber) forwardActionCommand(resourceID string, msg Logi
 	}
 	if err := s.ipcBridge.writeJSON(cmd); err != nil {
 		logging.Error("ResourceCmdSubscriber: failed to forward action to runtime", "resourceId", resourceID, "error", err)
+	}
+}
+
+// forwardSetActionOutput dispatches a setActionOutput command directly to the device driver.
+// No state model involvement — bypasses P/S/C entirely.
+func (s *ResourceCmdSubscriber) forwardSetActionOutput(ctx context.Context, resourceID string, msg LogicalResourceCommandMQTTPayload) {
+	actionValue, ok := msg.Value.(string)
+	if !ok || actionValue == "" {
+		logging.Warn("ResourceCmdSubscriber: invalid setActionOutput value", "resourceId", resourceID, "value", msg.Value)
+		return
+	}
+
+	rm := s.ipcBridge.getResourceMap()
+	resource := s.lookupResource(rm, resourceID)
+	if resource == nil || resource.Type != "actionOutput" {
+		logging.Warn("ResourceCmdSubscriber: setActionOutput for non-actionOutput resource",
+			"resourceId", resourceID, "type", resourceTypeOrNil(resource))
+		return
+	}
+
+	if s.drivers == nil {
+		logging.Warn("ResourceCmdSubscriber: no drivers available for setActionOutput", "resourceId", resourceID)
+		return
+	}
+
+	driver, driverOk := s.drivers[resource.Device]
+	if !driverOk {
+		logging.Warn("ResourceCmdSubscriber: no driver for setActionOutput device",
+			"resourceId", resourceID, "device", resource.Device)
+		return
+	}
+
+	if err := driver.SetOutput(ctx, resource.Pin, actionValue); err != nil {
+		logging.Error("ResourceCmdSubscriber: setActionOutput driver error",
+			"resourceId", resourceID, "device", resource.Device, "error", err)
+	} else {
+		logging.Debug("ResourceCmdSubscriber: setActionOutput via driver",
+			"resourceId", resourceID, "device", resource.Device, "action", actionValue)
 	}
 }
 

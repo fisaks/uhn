@@ -277,6 +277,46 @@ Master host:
 - **Action metadata** — sibling fields matching `action_*` (e.g. `action_duration`, `action_rate`) are collected into a metadata map and included in the event payload. Other state properties in the same blob are processed normally through the per-pin state path.
 - **Pin is the action property name** — typically `"action"` for most Zigbee devices, matching the Z2M expose name. The topic uses the literal string: `device/button_panel/action/action`.
 
+## Action Output Flow (setActionOutput)
+
+Action outputs are the outbound mirror of action inputs — **transient, write-only commands** sent to devices (e.g. IKEA LED driver `effect: "blink"`). They bypass the P/S/C state model entirely. No state updates, no rule chaining, no depth tracking.
+
+### Rule or scene triggers setActionOutput
+
+```
+Rule fires setActionOutput
+  → Rule engine: toRuntimeAction() → { type: "setActionOutput", resourceId, action }
+  → IPC → Host (edge or master)
+
+Edge host:
+  → EdgeActionHandler.handleSetActionOutput()
+    → Lookup resource, validate type is "actionOutput"
+    → driver.SetOutput(ctx, pin, action)  // e.g. ZigbeeDriver publishes {"effect": "blink"} to Z2M /set
+
+Master host:
+  → RuleActionDispatcher.handleSetActionOutputAction()
+    → MQTT: resource/cmd/{resourceId} {action: "setActionOutput", value: "blink"}
+      → Edge: ResourceCmdSubscriber.forwardSetActionOutput()
+        → driver.SetOutput(ctx, pin, action)
+```
+
+### UI triggers setActionOutput
+
+```
+UI Click → WebSocket → Master
+  → CommandsResourceService.handleActionOutput()
+    → MQTT: resource/cmd/{resourceId} {action: "setActionOutput", value: "blink"}
+      → Edge: ResourceCmdSubscriber.forwardSetActionOutput()
+        → driver.SetOutput(ctx, pin, action)
+```
+
+### Key design points
+
+- **No P/S/C involvement** — write-only commands, no state feedback expected.
+- **Terminal command** — no rule chaining, no depth tracking (unlike `emitAction`).
+- **Z2M detection** — write-only enums (access=2) with non-ON/OFF values are mapped to `actionOutput` by the Z2M transport and import tool.
+- **Go driver already handles it** — `ZigbeeDriver.SetOutput()` passes string values through to Z2M `/set` unchanged.
+
 ## Logical Resource State
 
 Logical resources (timers, complex, virtualDigitalInput, virtualAnalogOutput) bypass the P/S/C model entirely. Their state is authoritative — no signal override.
