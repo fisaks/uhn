@@ -264,7 +264,7 @@ func (b *IPCBridge) HandleDeviceState(ctx context.Context, state uhn.DeviceState
 	resourceStates := ExtractResourceStates(state, deviceCfg, rm, state.TimestampMs)
 
 	for _, rs := range resourceStates {
-		b.updatePhysicalState(rs.ResourceID, rs.Value, rs.Timestamp)
+		b.updatePhysicalState(rs.ResourceID, rs.Value, rs.Timestamp, false)
 	}
 }
 
@@ -299,7 +299,7 @@ func (b *IPCBridge) UpdatePhysicalStateByAddress(ctx context.Context, device, re
 		return
 	}
 
-	b.updatePhysicalState(resourceID, value, timestamp)
+	b.updatePhysicalState(resourceID, value, timestamp, false)
 }
 
 // ReadPhysicalStateByAddress reads the latest physical state for a device address.
@@ -315,6 +315,34 @@ func (b *IPCBridge) ReadPhysicalStateByAddress(device, resourceType string, pin 
 // HasResourceMap returns true if the ResourceMap has been built (blueprint loaded).
 func (b *IPCBridge) HasResourceMap() bool {
 	return b.getResourceMap() != nil
+}
+
+// replayPhysicalStateCache iterates the physicalByAddress cache and resolves
+// each entry through the ResourceMap into physicalState/computedState.
+// Called after ResourceMap is rebuilt (e.g. runtime restart) to recover
+// device state that arrived while the ResourceMap was nil.
+func (b *IPCBridge) replayPhysicalStateCache(rm *ResourceMap) {
+	b.stateMu.RLock()
+	snapshot := make(map[string]any, len(b.physicalByAddress))
+	for k, v := range b.physicalByAddress {
+		snapshot[k] = v
+	}
+	b.stateMu.RUnlock()
+
+	now := time.Now().UnixMilli()
+	replayed := 0
+	for addrKey, value := range snapshot {
+		resourceID, ok := rm.byAddressKey[addrKey]
+		if !ok {
+			continue
+		}
+		b.updatePhysicalState(resourceID, value, now, true)
+		replayed++
+	}
+
+	if replayed > 0 {
+		logging.Info("Replayed physical state cache", "replayed", replayed, "total", len(snapshot))
+	}
 }
 
 // GetDecimalPrecisionForAddress returns the decimal precision for a resource, or -1 if not set.
@@ -376,8 +404,10 @@ func (b *IPCBridge) HandleSignalUpdate(resourceID string, value any, timestamp i
 }
 
 // updatePhysicalState updates P for a resource, clears signal if physical changed,
-// recomputes C, and sends stateUpdate. Mirrors master's updatePhysicalState().
-func (b *IPCBridge) updatePhysicalState(resourceID string, value any, timestamp int64) {
+// recomputes C, and optionally sends stateUpdate. When skipRuntimeUpdate is true, only the
+// state maps are updated without sending IPC — used during cache replay before
+// the runtime is ready (sendFullStateUpdate will deliver all state at once).
+func (b *IPCBridge) updatePhysicalState(resourceID string, value any, timestamp int64, skipRuntimeUpdate bool) {
 	b.stateMu.Lock()
 
 	prevPhysical, hadPhysical := b.physicalState[resourceID]
@@ -403,7 +433,7 @@ func (b *IPCBridge) updatePhysicalState(resourceID string, value any, timestamp 
 
 	b.stateMu.Unlock()
 
-	if computed != prevComputed {
+	if !skipRuntimeUpdate && computed != prevComputed {
 		b.sendStateUpdate(RuntimeResourceState{
 			ResourceID: resourceID,
 			Value:      computed,
@@ -633,6 +663,13 @@ func (b *IPCBridge) handleResourcesLoaded(ctx context.Context, raw []byte) {
 	b.resourceMapMu.Unlock()
 
 	logging.Info("IPC bridge resource map built", "resources", len(rm.byResourceID))
+
+	// Replay cached physical state through the state pipeline.
+	// During stop/restart, physicalByAddress keeps accumulating device state
+	// but it can't reach computedState because ResourceMap is nil.
+	// Now that ResourceMap is rebuilt, replay to fill physicalState/computedState
+	// before sendFullStateUpdate() runs in onReady().
+	b.replayPhysicalStateCache(rm)
 
 	// Notify listeners (e.g. Z2M transport replays cached state)
 	if b.onResourceMapReady != nil {
