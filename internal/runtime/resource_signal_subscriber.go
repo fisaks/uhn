@@ -40,7 +40,7 @@ func (s *ResourceSignalSubscriber) SetDrivers(drivers map[string]uhn.DeviceDrive
 
 // OnMessage handles an incoming MQTT message on "resource/signal/{resourceId}".
 // Topic format after prefix stripping: "uhn/{edge}/resource/signal/{resourceId}"
-func (s *ResourceSignalSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *ResourceSignalSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	// Topic format: "uhn/{edge}/resource/signal/{resourceId}"
 	parts := strings.Split(topic, "/")
 	if len(parts) != 5 {

@@ -400,6 +400,10 @@ curl -s -X PUT http://localhost:8092/device/portable-socket-plug \
 # Toggle state
 curl -s -X POST http://localhost:8092/device/portable-socket-plug/toggle
 
+# Emit action event (button press simulation)
+curl -s -X POST http://localhost:8092/device/portable-button-panel/action \
+  -H 'Content-Type: application/json' -d '{"action": "toggle"}'
+
 # Re-publish bridge/devices to MQTT
 curl -s -X POST http://localhost:8092/admin/publish-devices
 ```

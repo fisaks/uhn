@@ -21,10 +21,11 @@ import (
 // Only publishes properties that exist in the current blueprint (ResourceMap).
 // Implements uhn.DeviceTransport.
 type ZigbeeTransport struct {
-	cfg            *config.ZigbeeAdapterConfig
-	stateUpdater   uhn.StateUpdater
-	resourceLookup uhn.ResourceLookup
-	broker         messaging.Broker
+	cfg                *config.ZigbeeAdapterConfig
+	stateUpdater       uhn.StateUpdater
+	resourceLookup     uhn.ResourceLookup
+	actionEventEmitter uhn.ActionEventEmitter
+	broker             messaging.Broker
 
 	// configDevices is the set of device names from the edge config.
 	// Only these devices are processed — state messages from unlisted
@@ -68,6 +69,9 @@ type z2mDevice struct {
 	propertyTypes map[string]string
 	// writableProperties lists property names that accept /set commands.
 	writableProperties map[string]bool
+	// eventProperties maps property names that emit transient action events.
+	// Key: property name (e.g. "action"), Value: list of valid action values.
+	eventProperties map[string][]string
 }
 
 // NewZigbeeTransport creates a transport for one Z2M adapter.
@@ -75,6 +79,7 @@ func NewZigbeeTransport(
 	cfg *config.ZigbeeAdapterConfig,
 	stateUpdater uhn.StateUpdater,
 	resourceLookup uhn.ResourceLookup,
+	actionEventEmitter uhn.ActionEventEmitter,
 	broker messaging.Broker,
 ) *ZigbeeTransport {
 	cfgDevices := make(map[string]*config.ZigbeeDeviceConfig, len(cfg.Devices))
@@ -83,10 +88,11 @@ func NewZigbeeTransport(
 	}
 
 	return &ZigbeeTransport{
-		cfg:            cfg,
-		stateUpdater:   stateUpdater,
-		resourceLookup: resourceLookup,
-		broker:         broker,
+		cfg:                cfg,
+		stateUpdater:       stateUpdater,
+		resourceLookup:     resourceLookup,
+		actionEventEmitter: actionEventEmitter,
+		broker:             broker,
 		configDevices:  cfgDevices,
 		devices:        make(map[string]*z2mDevice),
 		lastValues:     make(map[string]any),
@@ -113,13 +119,13 @@ func (t *ZigbeeTransport) Start(ctx context.Context) {
 	// Subscribe to Z2M bridge topics using raw MQTT (Z2M publishes to its own
 	// topic namespace, not under the uhn/{edge}/ prefix).
 	t.broker.SubscribeRaw(ctx, base+"/bridge/devices", messaging.AtLeastOnce, &z2mSubscriber{
-		handler: func(ctx context.Context, topic string, payload []byte) {
+		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
 			t.handleZ2MBridgeDevices(ctx, payload)
 		},
 	})
 
 	t.broker.SubscribeRaw(ctx, base+"/bridge/state", messaging.AtLeastOnce, &z2mSubscriber{
-		handler: func(ctx context.Context, topic string, payload []byte) {
+		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
 			t.handleZ2MBridgeState(payload)
 		},
 	})
@@ -127,15 +133,16 @@ func (t *ZigbeeTransport) Start(ctx context.Context) {
 	// Subscribe to all device state topics: {baseTopic}/+
 	// This catches {baseTopic}/{friendlyName} messages.
 	// We filter to known devices in the handler.
+	// Retained flag is passed through to skip stale action values.
 	t.broker.SubscribeRaw(ctx, base+"/+", messaging.AtLeastOnce, &z2mSubscriber{
-		handler: func(ctx context.Context, topic string, payload []byte) {
-			t.handleZ2MDeviceState(ctx, topic, payload)
+		handler: func(ctx context.Context, topic string, payload []byte, retained bool) {
+			t.handleZ2MDeviceState(ctx, topic, payload, retained)
 		},
 	})
 
 	// Subscribe to availability: {baseTopic}/{friendlyName}/availability
 	t.broker.SubscribeRaw(ctx, base+"/+/availability", messaging.AtLeastOnce, &z2mSubscriber{
-		handler: func(ctx context.Context, topic string, payload []byte) {
+		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
 			t.handleZ2MDeviceAvailability(ctx, topic, payload)
 		},
 	})
@@ -198,6 +205,13 @@ func (t *ZigbeeTransport) GetDeviceInfos() []Z2MDeviceInfo {
 				Writable: dev.writableProperties[prop],
 			})
 		}
+		for prop := range dev.eventProperties {
+			info.Properties = append(info.Properties, Z2MPropertyInfo{
+				Name:     prop,
+				Type:     "actionInput",
+				Writable: false,
+			})
+		}
 		infos = append(infos, info)
 	}
 	return infos
@@ -245,6 +259,7 @@ func (t *ZigbeeTransport) handleZ2MBridgeDevices(ctx context.Context, payload []
 			IEEEAddress:        meta.IEEEAddress,
 			propertyTypes:      make(map[string]string),
 			writableProperties: make(map[string]bool),
+			eventProperties:    make(map[string][]string),
 		}
 
 		if meta.Definition != nil {
@@ -304,6 +319,13 @@ func (t *ZigbeeTransport) ReplayCachedState(ctx context.Context) {
 		return
 	}
 
+	// Clear change detection state so replay re-publishes all values.
+	// After a blueprint reload the runtime has no state — stale lastValues
+	// would cause processStateBlob to skip unchanged properties.
+	t.lastValuesMu.Lock()
+	t.lastValues = make(map[string]any)
+	t.lastValuesMu.Unlock()
+
 	replayed := 0
 	for deviceName, payload := range blobs {
 		t.devicesMu.RLock()
@@ -318,7 +340,7 @@ func (t *ZigbeeTransport) ReplayCachedState(ctx context.Context) {
 			continue
 		}
 
-		t.processStateBlob(ctx, deviceName, dev, blob, "", currentTimeMs())
+		t.processStateBlob(ctx, deviceName, dev, blob, "", currentTimeMs(), true)
 		replayed++
 	}
 
@@ -413,6 +435,13 @@ func processExposes(exposes []json.RawMessage, dev *z2mDevice, prefix string) {
 		// Map Z2M type + access to UHN resource type
 		// Access bits: 1=readable, 2=writable, 4=publishable
 		writable := expose.Access&2 != 0
+
+		// Action property: read-only enum named "action" with values → transient event
+		if expose.Type == "enum" && !writable && prop == "action" && len(expose.Values) > 0 && !isOnOffEnum(expose.Values) {
+			dev.eventProperties[prop] = expose.Values
+			continue
+		}
+
 		uhnType := mapExposeToUHNType(expose.Type, writable, expose.Values)
 		if uhnType == "" {
 			continue
@@ -450,7 +479,7 @@ func mapExposeToUHNType(z2mType string, writable bool, values []string) string {
 		if writable {
 			return "analogOutput"
 		}
-		// Read-only enums (e.g. power_on_behavior) — no UHN type mapping yet
+		// Read-only enums — no UHN state type mapping
 		return ""
 	default:
 		return ""
@@ -490,7 +519,8 @@ func (t *ZigbeeTransport) handleZ2MBridgeState(payload []byte) {
 }
 
 // handleZ2MDeviceState processes a per-device state message from Z2M.
-func (t *ZigbeeTransport) handleZ2MDeviceState(ctx context.Context, topic string, payload []byte) {
+// The retained flag indicates whether this is a retained MQTT message (stale state from broker).
+func (t *ZigbeeTransport) handleZ2MDeviceState(ctx context.Context, topic string, payload []byte, retained bool) {
 	// Extract device name from topic: {baseTopic}/{friendlyName}
 	deviceName := extractDeviceName(topic, t.cfg.BaseTopic)
 	if deviceName == "" || deviceName == "bridge" {
@@ -502,17 +532,19 @@ func (t *ZigbeeTransport) handleZ2MDeviceState(ctx context.Context, topic string
 		return
 	}
 
+	// Always cache the raw blob — even before device discovery (bridge/devices).
+	// Retained Z2M state messages can arrive before bridge/devices, so we must
+	// cache them unconditionally. ReplayCachedState will pick them up later.
+	t.lastBlobsMu.Lock()
+	t.lastBlobs[deviceName] = payload
+	t.lastBlobsMu.Unlock()
+
 	t.devicesMu.RLock()
 	dev, known := t.devices[deviceName]
 	t.devicesMu.RUnlock()
 	if !known {
 		return
 	}
-
-	// Always cache the raw blob for replay after ResourceMap is built
-	t.lastBlobsMu.Lock()
-	t.lastBlobs[deviceName] = payload
-	t.lastBlobsMu.Unlock()
 
 	// Don't process until ResourceMap exists — state will be replayed
 	if t.resourceLookup == nil || !t.resourceLookup.HasResourceMap() {
@@ -529,7 +561,7 @@ func (t *ZigbeeTransport) handleZ2MDeviceState(ctx context.Context, topic string
 
 	timestamp := currentTimeMs()
 
-	t.processStateBlob(ctx, deviceName, dev, blob, "", timestamp)
+	t.processStateBlob(ctx, deviceName, dev, blob, "", timestamp, retained)
 }
 
 // processStateBlob walks the JSON blob, handling flat and nested (composite) properties.
@@ -540,6 +572,7 @@ func (t *ZigbeeTransport) processStateBlob(
 	blob map[string]any,
 	prefix string,
 	timestamp int64,
+	retained bool,
 ) {
 	for key, value := range blob {
 		// Skip Z2M internal objects
@@ -554,7 +587,7 @@ func (t *ZigbeeTransport) processStateBlob(
 
 		// Check for nested composite
 		if nested, ok := value.(map[string]any); ok {
-			t.processStateBlob(ctx, deviceName, dev, nested, propName, timestamp)
+			t.processStateBlob(ctx, deviceName, dev, nested, propName, timestamp, retained)
 			continue
 		}
 
@@ -603,6 +636,44 @@ func (t *ZigbeeTransport) processStateBlob(
 			"property", propName,
 			"type", uhnType,
 			"value", uhnValue)
+	}
+
+	// Process action event properties (e.g. Zigbee button "action" field).
+	// Action events are transient — no change detection, no state model update.
+	// Skip during replay and retained messages (both contain stale actions).
+	if !retained && prefix == "" && t.actionEventEmitter != nil {
+		for propName := range dev.eventProperties {
+			rawAction, exists := blob[propName]
+			if !exists {
+				continue
+			}
+			action, ok := rawAction.(string)
+			if !ok || action == "" {
+				continue
+			}
+			// Filter: only emit if blueprint has an actionInput resource for this property
+			if t.resourceLookup != nil && !t.resourceLookup.HasResourceForAddress(deviceName, "actionInput", propName) {
+				continue
+			}
+			// Collect sibling action_* fields as metadata
+			var metadata map[string]any
+			for k, v := range blob {
+				if k != propName && strings.HasPrefix(k, propName+"_") {
+					if metadata == nil {
+						metadata = make(map[string]any)
+					}
+					metadata[k] = v
+				}
+			}
+
+			t.actionEventEmitter.EmitActionEvent(ctx, deviceName, propName, action, metadata, timestamp)
+
+			logging.Info("Zigbee: action event",
+				"adapter", t.cfg.Name,
+				"device", deviceName,
+				"property", propName,
+				"action", action)
+		}
 	}
 }
 
@@ -708,9 +779,9 @@ func currentTimeMs() int64 {
 
 // z2mSubscriber wraps a handler function as a messaging.Subscriber.
 type z2mSubscriber struct {
-	handler func(ctx context.Context, topic string, payload []byte)
+	handler func(ctx context.Context, topic string, payload []byte, retained bool)
 }
 
-func (s *z2mSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
-	s.handler(ctx, topic, payload)
+func (s *z2mSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, retained bool) {
+	s.handler(ctx, topic, payload, retained)
 }

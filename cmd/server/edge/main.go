@@ -164,7 +164,7 @@ func main() {
 		var zigbeeTransports []*zigbee.ZigbeeTransport
 		edgeCatalog.SetBroker(edgeBroker)
 		for _, z2mCfg := range cfg.Zigbee {
-			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, edgeBroker)
+			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, ipcBridge, edgeBroker)
 			// Called after bridge/devices: register drivers + republish catalog
 			transport.SetOnDevicesDiscovered(func() {
 				// Register any new Z2M drivers

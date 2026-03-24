@@ -81,6 +81,13 @@ func (s *Z2MSimServer) PublishBridgeDevices(ctx context.Context) {
 		"error", err)
 }
 
+// PublishDeviceState publishes a device state blob to MQTT (non-retained for action events).
+func (s *Z2MSimServer) PublishDeviceState(deviceName string, data []byte) {
+	topic := s.baseTopic + "/" + deviceName
+	s.broker.PublishRaw(context.Background(), topic, messaging.FireAndForget, false, data)
+	logging.Debug("Z2M sim: published device state", "topic", topic, "payloadLen", len(data))
+}
+
 func (s *Z2MSimServer) runTicker(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(s.tickerMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -103,7 +110,7 @@ type setHandler struct {
 	sim *Z2MSimServer
 }
 
-func (h *setHandler) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (h *setHandler) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	// Extract device name: {baseTopic}/{device}/set
 	prefix := h.sim.baseTopic + "/"
 	if !strings.HasPrefix(topic, prefix) {
@@ -158,7 +165,7 @@ type optionsHandler struct {
 	sim *Z2MSimServer
 }
 
-func (h *optionsHandler) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (h *optionsHandler) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	// Just respond with ok
 	var req struct {
 		ID      string         `json:"id"`

@@ -55,7 +55,7 @@ func (s *ResourceCmdSubscriber) SetDrivers(drivers map[string]uhn.DeviceDriver) 
 }
 
 // OnMessage handles an incoming MQTT message on "resource/cmd/{resourceId}".
-func (s *ResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *ResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	parts := strings.Split(topic, "/")
 	if len(parts) != 5 {
 		logging.Warn("ResourceCmdSubscriber: malformed topic", "topic", topic)
@@ -80,6 +80,8 @@ func (s *ResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, pay
 		s.forwardTimerCommand(resourceID, msg)
 	case "setState":
 		s.ipcBridge.HandleSetState(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
+	case "action":
+		s.forwardActionCommand(resourceID, msg)
 	default:
 		logging.Warn("ResourceCmdSubscriber: unknown action", "resourceId", resourceID, "action", msg.Action)
 	}
@@ -272,6 +274,27 @@ func (s *ResourceCmdSubscriber) forwardLongPressCommand(resourceID string, msg L
 	}
 	if err := s.ipcBridge.writeJSON(cmd); err != nil {
 		logging.Error("ResourceCmdSubscriber: failed to forward longPress to runtime", "resourceId", resourceID, "error", err)
+	}
+}
+
+func (s *ResourceCmdSubscriber) forwardActionCommand(resourceID string, msg LogicalResourceCommandMQTTPayload) {
+	actionValue, ok := msg.Value.(string)
+	if !ok || actionValue == "" {
+		logging.Warn("ResourceCmdSubscriber: invalid action value", "resourceId", resourceID, "value", msg.Value)
+		return
+	}
+	cmd := ActionEventCommand{
+		Kind: "event",
+		Cmd:  "actionEvent",
+		Payload: ActionEventPayload{
+			ResourceID: resourceID,
+			Action:     actionValue,
+			Metadata:   msg.Metadata,
+			Timestamp:  msg.Timestamp,
+		},
+	}
+	if err := s.ipcBridge.writeJSON(cmd); err != nil {
+		logging.Error("ResourceCmdSubscriber: failed to forward action to runtime", "resourceId", resourceID, "error", err)
 	}
 }
 

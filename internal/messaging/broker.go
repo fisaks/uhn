@@ -53,7 +53,7 @@ type OnConnectPublisher interface {
 	OnConnectPublish(ctx context.Context) (*ConnectMessage, error)
 }
 type Subscriber interface {
-	OnMessage(ctx context.Context, topic string, payload []byte)
+	OnMessage(ctx context.Context, topic string, payload []byte, retained bool)
 }
 type ConnectMessage struct {
 	Topic        string
@@ -315,7 +315,7 @@ func (b *MsgBroker) subscribeRaw(ctx context.Context, fullTopic string, qos QoS,
 					logging.Error("mqtt handler panic", "ClientName", b.config.ClientName, "topic", msg.Topic(), "err", r)
 				}
 			}()
-			handler.OnMessage(ctx, msg.Topic(), msg.Payload())
+			handler.OnMessage(ctx, msg.Topic(), msg.Payload(), msg.Retained())
 		}()
 	}
 	token := b.client.Subscribe(fullTopic, byte(qos), onMessageHandler)

@@ -35,6 +35,7 @@ C = S !== undefined ? S : P
 | `resource/state/{resourceId}` | Edge → Master | Logical resource state (timers, virtual) | `{ resourceId, value, timestamp, details? }` |
 | `resource/signal/{resourceId}` | Master → Edge | Signal override | `{ resourceId, value, timestamp }` |
 | `resource/cmd/{resourceId}` | Master → Edge | Commands (tap, setState, timer, etc.) | `{ resourceId, action, value?, ... }` |
+| `device/{name}/action/{pin}` | Edge → Master | Transient action events (Zigbee button presses). Not retained. | `{ action, metadata?, timestamp }` |
 
 **Key principle:** Physical state topics (`device/`) carry hardware-level data using physical addresses (device name + pin). They have no knowledge of blueprint resource names. The master is responsible for mapping physical addresses to blueprint resource IDs via `makeAddressKey({edge, device, type, pin})`.
 
@@ -205,6 +206,44 @@ Blueprint Rule / View Command
 | 9 | analogOutput | 1–9 | Effect mode |
 
 Pin layout is fixed per model (configured via `model` field in zone config).
+
+## Action Event Flow
+
+Action events are **transient, fire-and-forget** events that bypass the P/S/C state model entirely. They are used for Zigbee button presses where the `action` property (e.g. `toggle`, `brightness_step_up`, `arrow_left_click`) represents a momentary event, not a persistent state.
+
+### Physical button press (Z2M → edge → master)
+
+```
+Zigbee Button Press
+  → Z2M publishes: zigbee2mqtt/{device} {"action": "toggle", "action_duration": 0.12, ...}
+  → ZigbeeTransport.handleZ2MDeviceState()
+    → Detect `action` field in Z2M blob (non-empty string)
+    → Skip if MQTT retained flag is set (stale action from broker restart)
+    → Collect action metadata from sibling `action_*` fields (e.g. action_duration)
+    → ActionEventEmitter.EmitActionEvent(device, pin, action, metadata, timestamp)
+      ├→ IPCBridge: IPC to edge rule runtime (actionEvent message)
+      └→ EdgeBroker: MQTT publish to device/{name}/action/{pin} (QoS 1, NOT retained)
+          └→ Master: ActionEventService subscribes
+              └→ IPC to master rule runtime (actionEvent message)
+```
+
+### UI action command (master → edge)
+
+```
+UI Action → WebSocket → Master
+  ├→ IPC to master rule runtime (actionEvent message)
+  └→ MQTT publish to resource/cmd/{resourceId} {action: "actionInput", value: "toggle"}
+      → Edge: ResourceCmdSubscriber
+          → IPC to edge rule runtime (actionEvent message)
+```
+
+### Key design points
+
+- **No P/S/C involvement** — actions are events, not state. They don't update physical state, signal state, or computed state.
+- **Retained messages filtered** — Z2M publishes state with `retain: true`, which means the last action value persists in the broker. The transport checks the MQTT retained flag and skips any retained action to prevent stale button presses from replaying on reconnect.
+- **Empty actions skipped** — Z2M sometimes publishes `"action": ""` when clearing the action field. These are ignored.
+- **Action metadata** — sibling fields matching `action_*` (e.g. `action_duration`, `action_rate`) are collected into a metadata map and included in the event payload. Other state properties in the same blob are processed normally through the per-pin state path.
+- **Pin is the action property name** — typically `"action"` for most Zigbee devices, matching the Z2M expose name. The topic uses the literal string: `device/button_panel/action/action`.
 
 ## Logical Resource State
 
@@ -461,3 +500,4 @@ When adding a new hardware protocol:
 6. Wire `resourceCmdSub.SetDrivers(drivers)` and `resourceSignalSub.SetDrivers(drivers)` in `main.go`
 7. View tap/longPress will automatically use the correct strategy based on `BypassSignalState`
 8. For MQTT-based protocols (like Z2M): use `broker.SubscribeRaw()` / `broker.PublishRaw()` for topics outside the `uhn/{edge}/` namespace
+9. For devices with transient action events (buttons): implement `ActionEventEmitter` to emit events via IPC + MQTT `device/{name}/action/{pin}`. Filter retained messages to prevent stale actions on reconnect.

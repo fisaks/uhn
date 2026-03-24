@@ -23,7 +23,7 @@ func NewMuteCmdSubscriber(ipcBridge *IPCBridge) *MuteCmdSubscriber {
 
 // OnMessage handles an incoming MQTT message on "mute/cmd".
 // Topic format after prefix stripping: "uhn/{edge}/mute/cmd"
-func (s *MuteCmdSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *MuteCmdSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	var msg MuteMQTTPayload
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		logging.Warn("MuteCmdSubscriber: invalid JSON", "topic", topic, "error", err)

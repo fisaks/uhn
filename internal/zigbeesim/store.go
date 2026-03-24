@@ -140,6 +140,26 @@ func (s *Z2MSimStore) ToggleState(device string) ([]byte, error) {
 	return data, err
 }
 
+// EmitAction builds a state blob with the current device state plus the action field.
+// The action value is transient — it is NOT persisted in the store.
+func (s *Z2MSimStore) EmitAction(device, action string) ([]byte, error) {
+	s.mu.RLock()
+	state, ok := s.states[device]
+	if !ok {
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("unknown device: %s", device)
+	}
+	// Build a copy with the action field included
+	blob := make(map[string]any, len(state)+1)
+	for k, v := range state {
+		blob[k] = v
+	}
+	blob["action"] = action
+	data, err := json.Marshal(blob)
+	s.mu.RUnlock()
+	return data, err
+}
+
 // SimulateTick generates small random variations in sensor values.
 // Returns a map of device → updated state JSON for devices that changed.
 func (s *Z2MSimStore) SimulateTick() map[string][]byte {

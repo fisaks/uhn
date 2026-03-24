@@ -84,6 +84,7 @@ type LogEvent struct {
 	Level     string `json:"level"`
 	Component string `json:"component"`
 	Message   string `json:"message"`
+	Data      any    `json:"data,omitempty"`
 }
 
 // --- Rules loaded IPC types ---
@@ -132,14 +133,18 @@ type LogicalResourceMQTTPayload struct {
 
 // LogicalResourceCommandMQTTPayload is the JSON payload for logical resource command MQTT messages
 // on the resource/cmd/+ topic.
+//
+// NOTE: This is a flat superset struct — each Action type only uses a subset of fields.
+// Consider refactoring into per-action structs with a shared envelope if more action types are added.
 type LogicalResourceCommandMQTTPayload struct {
-	ResourceID   string `json:"resourceId"`
-	Action       string `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState"
-	Value        any    `json:"value,omitempty"`
-	DurationMs   int64  `json:"durationMs,omitempty"`
-	Mode         string `json:"mode,omitempty"` // "restart" | "startOnce"
-	SimulateHold bool   `json:"simulateHold,omitempty"`
-	Timestamp    int64  `json:"timestamp"`
+	ResourceID   string         `json:"resourceId"`
+	Action       string         `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState" | "action"
+	Value        any            `json:"value,omitempty"`
+	DurationMs   int64          `json:"durationMs,omitempty"`
+	Mode         string         `json:"mode,omitempty"` // "restart" | "startOnce"
+	SimulateHold bool           `json:"simulateHold,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"` // Action="action" only: optional metadata (e.g. action_duration)
+	Timestamp    int64          `json:"timestamp"`
 }
 
 // TimerCommand is the IPC command sent to the runtime to control a timer.
@@ -186,6 +191,24 @@ type LongPressCommandPayload struct {
 	ResourceID  string `json:"resourceId"`
 	Timestamp   int64  `json:"timestamp"`
 	ThresholdMs int64  `json:"thresholdMs"`
+}
+
+// --- Action input IPC types ---
+
+// ActionEventCommand sends an action event to the runtime.
+// Source: physical button (Z2M), UI tap (WebSocket), or edge relay (MQTT).
+type ActionEventCommand struct {
+	Kind    string                  `json:"kind"` // "event"
+	Cmd     string                  `json:"cmd"`  // "actionEvent"
+	Payload ActionEventPayload      `json:"payload"`
+}
+
+// ActionEventPayload is the payload of an ActionEventCommand.
+type ActionEventPayload struct {
+	ResourceID string         `json:"resourceId"`
+	Action     string         `json:"action"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	Timestamp  int64          `json:"timestamp"`
 }
 
 // --- Mute IPC types ---

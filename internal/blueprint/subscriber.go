@@ -7,7 +7,7 @@ type identitySubscriber struct {
 	downloader *BlueprintDownloader
 }
 
-func (s *identitySubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *identitySubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	s.downloader.HandleMasterIdentity(payload)
 }
 
@@ -21,7 +21,7 @@ type blueprintSubscriber struct {
 	downloader *BlueprintDownloader
 }
 
-func (s *blueprintSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *blueprintSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	s.downloader.HandleBlueprintActivated(payload)
 }
 

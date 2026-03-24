@@ -96,6 +96,24 @@ func (r *Z2MSimREST) handleDevice(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 
+	case req.Method == http.MethodPost && action == "action":
+		var body struct {
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Action == "" {
+			http.Error(w, `{"error":"missing action field"}`, http.StatusBadRequest)
+			return
+		}
+		data, err := r.store.EmitAction(name, body.Action)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		// Publish the transient state (with action) to MQTT
+		r.server.PublishDeviceState(name, data)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}

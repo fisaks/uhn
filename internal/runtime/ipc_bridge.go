@@ -469,17 +469,21 @@ func (b *IPCBridge) handleLog(raw []byte) {
 		return
 	}
 	prefix := "Rule runtime [" + msg.Component + "]: "
+	args := make([]any, 0, 2)
+	if msg.Data != nil {
+		args = append(args, "data", msg.Data)
+	}
 	switch msg.Level {
 	case "error":
-		logging.Error(prefix + msg.Message)
+		logging.Error(prefix+msg.Message, args...)
 	case "warn":
-		logging.Warn(prefix + msg.Message)
+		logging.Warn(prefix+msg.Message, args...)
 	case "debug":
-		logging.Debug(prefix + msg.Message)
+		logging.Debug(prefix+msg.Message, args...)
 	case "trace":
-		logging.Trace(prefix + msg.Message)
+		logging.Trace(prefix+msg.Message, args...)
 	default:
-		logging.Info(prefix + msg.Message)
+		logging.Info(prefix+msg.Message, args...)
 	}
 }
 
@@ -643,6 +647,53 @@ func (b *IPCBridge) clearRuntimeRules(ctx context.Context) {
 			logging.Error("Failed to clear runtime rules from MQTT", "error", err)
 		}
 	}
+}
+
+// EmitActionEvent forwards a transient action event to the edge runtime and publishes
+// it to MQTT so the master runtime can also process it.
+// Looks up the resource by device address (type "actionInput") to get the resourceId,
+// then writes an actionInputEvent IPC command. Completely bypasses the P/S/C state model.
+func (b *IPCBridge) EmitActionEvent(ctx context.Context, device string, pin string, action string, metadata map[string]any, timestamp int64) {
+	rm := b.getResourceMap()
+	if rm == nil {
+		return
+	}
+
+	resourceID, ok := rm.LookupResourceID(device, "actionInput", pin)
+	if !ok {
+		return
+	}
+
+	cmd := ActionEventCommand{
+		Kind: "event",
+		Cmd:  "actionEvent",
+		Payload: ActionEventPayload{
+			ResourceID: resourceID,
+			Action:     action,
+			Metadata:   metadata,
+			Timestamp:  timestamp,
+		},
+	}
+	if err := b.writeJSON(cmd); err != nil {
+		logging.Error("Failed to send actionInputEvent", "resourceId", resourceID, "action", action, "error", err)
+	}
+
+	// Publish to MQTT so master runtime can also process the action event
+	if b.broker != nil {
+		topic := fmt.Sprintf("device/%s/action/%s", device, pin)
+		payload := map[string]any{
+			"action":    action,
+			"timestamp": timestamp,
+		}
+		if metadata != nil {
+			payload["metadata"] = metadata
+		}
+		if err := b.broker.PublishJSON(ctx, topic, messaging.AtLeastOnce, false, payload); err != nil {
+			logging.Error("Failed to publish action event to MQTT", "resourceId", resourceID, "action", action, "error", err)
+		}
+	}
+
+	logging.Debug("Action event emitted to runtime", "resourceId", resourceID, "device", device, "pin", pin, "action", action)
 }
 
 // writeJSON marshals v to JSON and writes it as a newline-terminated line to stdin.

@@ -67,7 +67,7 @@ func (b *edgeBroker) PublishDeviceState(ctx context.Context, state uhn.DeviceSta
 	return nil
 
 }
-func (b *edgeBroker) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (b *edgeBroker) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	logging.Debug("Received cmd message", "topic", topic)
 	// Parse device name from topic
 	parts := strings.Split(topic, "/")

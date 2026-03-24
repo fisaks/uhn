@@ -78,6 +78,12 @@ type ResourceLookup interface {
 	GetDecimalPrecisionForAddress(device, resourceType string, pin any) int
 }
 
+// ActionEventEmitter forwards transient action events (e.g. Zigbee button presses) to the
+// rule runtime. Unlike state updates, action events bypass the P/S/C state model entirely.
+type ActionEventEmitter interface {
+	EmitActionEvent(ctx context.Context, device string, pin string, action string, metadata map[string]any, timestamp int64)
+}
+
 // DeviceTransport manages the connection lifecycle for a hardware transport layer.
 // One transport may serve multiple DeviceDrivers (e.g. Mi-Light iBox2 serves
 // multiple zones, a Modbus serial bus serves multiple slave devices).

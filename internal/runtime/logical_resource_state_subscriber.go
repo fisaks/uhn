@@ -48,7 +48,7 @@ func (s *LogicalResourceStateSubscriber) Subscribe(ctx context.Context) {
 }
 
 // OnMessage handles an incoming MQTT message on "logical-resource/state/{resourceId}".
-func (s *LogicalResourceStateSubscriber) OnMessage(ctx context.Context, topic string, payload []byte) {
+func (s *LogicalResourceStateSubscriber) OnMessage(ctx context.Context, topic string, payload []byte, _ bool) {
 	var msg LogicalResourceMQTTPayload
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		logging.Warn("LogicalResourceStateSubscriber: invalid JSON", "topic", topic, "error", err)
