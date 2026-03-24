@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/fisaks/uhn/internal/config"
@@ -65,6 +66,8 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 		// Timer actions are only emitted in master mode; they shouldn't arrive
 		// on the edge action handler. Log a warning if they do.
 		logging.Warn("Timer action received on edge action handler (unexpected)", "type", action.Type, "resourceId", action.ResourceID)
+	case "emitAction":
+		h.handleEmitAction(ctx, action, resource)
 	case "mute", "clearMute":
 		h.handleMuteAction(ctx, action)
 	default:
@@ -118,7 +121,13 @@ func (h *EdgeActionHandler) handleSetDigitalOutput(ctx context.Context, action R
 }
 
 // handleSetAnalogOutput pushes an analog output command to the appropriate driver or poller.
+// For virtualAnalogOutput resources, updates local state directly via IPC bridge.
 func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	if resource.Type == "virtualAnalogOutput" {
+		h.ipcBridge.HandleSetState(ctx, action.ResourceID, action.Value, time.Now().UnixMilli())
+		return
+	}
+
 	if resource.Type != "analogOutput" {
 		logging.Warn("setAnalogOutput on non-analogOutput resource", "resourceId", action.ResourceID, "type", resource.Type)
 		return
@@ -226,6 +235,73 @@ func (h *EdgeActionHandler) handleEmitSignal(ctx context.Context, action Runtime
 	} else {
 		logging.Debug("emitSignal published", "resourceId", action.ResourceID, "value", action.Value)
 	}
+}
+
+// handleEmitAction validates depth, injects an actionEvent into the local runtime,
+// and publishes to MQTT so the master can also process it.
+//
+// Publishes to device/{device}/action/{pin} (edge → master), NOT resource/cmd/
+// (which is master → edge only). Master's ActionEventDispatcher picks this up.
+func (h *EdgeActionHandler) handleEmitAction(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	if resource == nil || resource.Type != "actionInput" {
+		logging.Warn("emitAction on non-actionInput resource",
+			"resourceId", action.ResourceID, "type", resourceTypeOrNil(resource))
+		return
+	}
+
+	if action.Depth >= MaxActionDepth {
+		logging.Warn("emitAction depth limit reached — dropping to prevent loop",
+			"resourceId", action.ResourceID, "action", action.Action, "depth", action.Depth)
+		return
+	}
+
+	if resource.Device == "" || resource.Pin == nil {
+		logging.Warn("emitAction: resource missing device/pin", "resourceId", action.ResourceID)
+		return
+	}
+
+	timestamp := time.Now().UnixMilli()
+
+	// Inject actionEvent to local runtime
+	cmd := ActionEventCommand{
+		Kind: "event",
+		Cmd:  "actionEvent",
+		Payload: ActionEventPayload{
+			ResourceID: action.ResourceID,
+			Action:     action.Action,
+			Metadata:   action.Metadata,
+			Timestamp:  timestamp,
+			Depth:      action.Depth,
+		},
+	}
+	if err := h.ipcBridge.writeJSON(cmd); err != nil {
+		logging.Error("emitAction: failed to forward to runtime", "resourceId", action.ResourceID, "error", err)
+	}
+
+	// Publish to MQTT so master runtime can also process it.
+	// Uses device/{device}/action/{pin} (edge → master), same as physical Z2M action events.
+	topic := fmt.Sprintf("device/%s/action/%v", resource.Device, resource.Pin)
+	payload := map[string]any{
+		"action":    action.Action,
+		"timestamp": timestamp,
+		"depth":     action.Depth,
+	}
+	if action.Metadata != nil {
+		payload["metadata"] = action.Metadata
+	}
+
+	if err := h.broker.PublishJSON(ctx, topic, messaging.AtLeastOnce, false, payload); err != nil {
+		logging.Error("emitAction: MQTT publish failed", "resourceId", action.ResourceID, "error", err)
+	} else {
+		logging.Debug("emitAction published", "resourceId", action.ResourceID, "action", action.Action, "depth", action.Depth)
+	}
+}
+
+func resourceTypeOrNil(r *RuntimeResource) string {
+	if r == nil {
+		return "<nil>"
+	}
+	return r.Type
 }
 
 // handleMuteAction forwards mute actions to the local runtime via IPC (fast path)

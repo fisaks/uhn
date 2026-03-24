@@ -291,6 +291,7 @@ func (s *ResourceCmdSubscriber) forwardActionCommand(resourceID string, msg Logi
 			Action:     actionValue,
 			Metadata:   msg.Metadata,
 			Timestamp:  msg.Timestamp,
+			Depth:      msg.Depth,
 		},
 	}
 	if err := s.ipcBridge.writeJSON(cmd); err != nil {

@@ -22,12 +22,19 @@ type RuntimeResource struct {
 	DecimalPrecision *int `json:"decimalPrecision,omitempty"`
 }
 
+// MaxActionDepth is the maximum allowed depth for emitAction loop prevention.
+const MaxActionDepth = 10
+
 // RuntimeAction is emitted by the rule engine when a rule fires.
 // Fields are a superset of all action types; only relevant fields are populated.
 type RuntimeAction struct {
-	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute"
+	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute" | "emitAction"
 	ResourceID string `json:"resourceId,omitempty"`
 	Value      any    `json:"value,omitempty"`
+	// emitAction-specific fields
+	Action   string         `json:"action,omitempty"`
+	Depth    int            `json:"depth,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 	// Mute-specific fields
 	TargetType string `json:"targetType,omitempty"` // "rule" | "resource"
 	TargetID   string `json:"targetId,omitempty"`
@@ -145,6 +152,7 @@ type LogicalResourceCommandMQTTPayload struct {
 	SimulateHold bool           `json:"simulateHold,omitempty"`
 	Metadata     map[string]any `json:"metadata,omitempty"` // Action="action" only: optional metadata (e.g. action_duration)
 	Timestamp    int64          `json:"timestamp"`
+	Depth        int            `json:"depth,omitempty"` // Action="action" only: loop prevention depth counter
 }
 
 // TimerCommand is the IPC command sent to the runtime to control a timer.
@@ -209,6 +217,7 @@ type ActionEventPayload struct {
 	Action     string         `json:"action"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	Timestamp  int64          `json:"timestamp"`
+	Depth      int            `json:"depth,omitempty"`
 }
 
 // --- Mute IPC types ---

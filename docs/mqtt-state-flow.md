@@ -35,7 +35,7 @@ C = S !== undefined ? S : P
 | `resource/state/{resourceId}` | Edge → Master | Logical resource state (timers, virtual) | `{ resourceId, value, timestamp, details? }` |
 | `resource/signal/{resourceId}` | Master → Edge | Signal override | `{ resourceId, value, timestamp }` |
 | `resource/cmd/{resourceId}` | Master → Edge | Commands (tap, setState, timer, etc.) | `{ resourceId, action, value?, ... }` |
-| `device/{name}/action/{pin}` | Edge → Master | Transient action events (Zigbee button presses). Not retained. | `{ action, metadata?, timestamp }` |
+| `device/{name}/action/{pin}` | Edge → Master | Transient action events (physical button press or rule `emitAction`). Not retained. | `{ action, metadata?, timestamp, depth? }` |
 
 **Key principle:** Physical state topics (`device/`) carry hardware-level data using physical addresses (device name + pin). They have no knowledge of blueprint resource names. The master is responsible for mapping physical addresses to blueprint resource IDs via `makeAddressKey({edge, device, type, pin})`.
 
@@ -237,6 +237,38 @@ UI Action → WebSocket → Master
           → IPC to edge rule runtime (actionEvent message)
 ```
 
+### Rule-emitted action (emitAction)
+
+Rules can emit action events targeting `actionInput` resources via `ruleAction({ type: "emitAction", ... })`. This enables rule chaining — e.g. PIR detects motion → rule emits action on button resource → button's rules fire.
+
+```
+Rule fires emitAction
+  → Rule engine: toRuntimeAction() increments depth (cause.depth + 1)
+  → Early loop prevention: same resource+action as cause → dropped
+  → IPC → Host (edge or master)
+
+Edge host:
+  → EdgeActionHandler.handleEmitAction()
+    → Validate depth < 10 (MaxActionDepth)
+    ├→ IPC to local edge runtime (actionEvent with depth)
+    └→ MQTT: device/{device}/action/{pin} (edge → master, same as physical Z2M actions)
+        └→ Master: ActionEventDispatcher
+            └→ IPC to master runtime (actionEvent with depth)
+
+Master host:
+  → RuleActionDispatcher.handleEmitActionAction()
+    → Validate depth < 10
+    ├→ IPC to local master runtime (actionEvent with depth)
+    └→ MQTT: resource/cmd/{resourceId} {action: "action", depth} (master → edge)
+        └→ Edge: ResourceCmdSubscriber → forwardActionCommand
+            └→ IPC to edge runtime (actionEvent with depth)
+```
+
+**Loop prevention (three layers):**
+1. **Same-cause rejection** — rule engine drops `emitAction` targeting same resource+action as the triggering cause (immediate, in-process)
+2. **Depth counter** — incremented on each rule-emitted hop, host rejects at depth ≥ 10
+3. **Topic direction** — edge publishes to `device/*/action/*` (edge → master), not `resource/cmd/` (master → edge), preventing self-echo
+
 ### Key design points
 
 - **No P/S/C involvement** — actions are events, not state. They don't update physical state, signal state, or computed state.
@@ -306,11 +338,16 @@ Commands from the master trigger actions on the edge through two paths:
 ```
 Rule Runtime → IPCBridge → ActionHandler
   ├→ setDigitalOutput / setAnalogOutput:
+  │   ├→ virtualAnalogOutput? → HandleSetState() (local state + MQTT publish)
   │   ├→ DeviceDriver exists? → driver.SetOutput() (IHC: SOAP setResourceValue)
   │   └→ Fall back to bus pollers (Modbus: WriteRegister)
-  └→ emitSignal:
-      ├→ DeviceDriver.BypassSignalState()? → driver.HandleSignal() (IHC: SOAP)
-      └→ Fall back to local signal state (Modbus)
+  ├→ emitSignal:
+  │   ├→ DeviceDriver.BypassSignalState()? → driver.HandleSignal() (IHC: SOAP)
+  │   └→ Fall back to local signal state (Modbus)
+  └→ emitAction:
+      → Validate depth < 10
+      ├→ IPC to local runtime (actionEvent with depth)
+      └→ MQTT: device/{device}/action/{pin} → master ActionEventDispatcher
 ```
 
 ### Device commands (from master UI direct click on resource)
