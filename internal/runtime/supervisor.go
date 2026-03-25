@@ -31,14 +31,15 @@ const (
 
 // RuntimeSupervisor manages the lifecycle of a sandboxed rule-runtime process.
 type RuntimeSupervisor struct {
-	workspacePath string
-	edgeName      string
-	sandboxPath   string
-	nodePath      string
-	runtimePath   string
-	runtimeMode   string // "normal" or "debug", mutable via system command
-	debugPort     int
-	tz            string
+	workspacePath   string
+	edgeName        string
+	sandboxPath     string
+	nodePath        string
+	runtimePath     string
+	runtimeMode     string // "normal" or "debug", mutable via system command
+	debugPort       int
+	tz              string
+	sandboxMemoryMB int
 	process       *exec.Cmd
 	stdin         io.WriteCloser // kept open for IPC commands to the rule runtime
 	running       bool
@@ -51,15 +52,16 @@ type RuntimeSupervisor struct {
 
 func NewRuntimeSupervisor(resolvedConfig *config.ResolvedEdgeConfig, ipcBridge *IPCBridge) *RuntimeSupervisor {
 	return &RuntimeSupervisor{
-		workspacePath: resolvedConfig.WorkspacePath,
-		edgeName:      resolvedConfig.Name,
-		sandboxPath:   resolvedConfig.SandboxPath,
-		nodePath:      resolvedConfig.NodePath,
-		runtimePath:   resolvedConfig.RuntimePath,
-		runtimeMode:   resolvedConfig.RuntimeMode,
-		debugPort:     resolvedConfig.DebugPort,
-		tz:            resolvedConfig.TZ,
-		ipcBridge:     ipcBridge,
+		workspacePath:   resolvedConfig.WorkspacePath,
+		edgeName:        resolvedConfig.Name,
+		sandboxPath:     resolvedConfig.SandboxPath,
+		nodePath:        resolvedConfig.NodePath,
+		runtimePath:     resolvedConfig.RuntimePath,
+		runtimeMode:     resolvedConfig.RuntimeMode,
+		debugPort:       resolvedConfig.DebugPort,
+		tz:              resolvedConfig.TZ,
+		sandboxMemoryMB: resolvedConfig.SandboxMemoryMB,
+		ipcBridge:       ipcBridge,
 	}
 }
 
@@ -314,10 +316,11 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 	// pre-populated cache inside the Node installation (/uhn-node maps to the
 	// nvm Node directory on the host). After upgrading pnpm, refresh with:
 	//   cp -r ~/.cache/node/corepack ~/.nvm/versions/node/v22.11.0/.corepack-cache
+	memoryBytes := int64(s.sandboxMemoryMB) * 1024 * 1024
 	cfg := &config.SandboxConfig{
 		Cwd:       "/uhn-runtime/packages/uhn-rule-runtime",
 		Env:       []string{"PATH=/uhn-node/bin:/usr/bin:/bin", "HOME=/tmp", "TZ=" + s.tz, "COREPACK_HOME=/uhn-node/.corepack-cache"},
-		Limits:    &config.Limits{MemoryBytes: 512 * 1024 * 1024, MaxPids: 254},
+		Limits:    &config.Limits{MemoryBytes: memoryBytes, MaxPids: 254},
 		RunAsUser: currentUser.Username,
 		Network:   config.NetworkLoopback,
 	}

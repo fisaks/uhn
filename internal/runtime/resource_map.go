@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"fmt"
+
+	"github.com/fisaks/uhn/internal/util"
 )
 
 // ResourceMap provides bidirectional lookup between address keys and resource IDs.
@@ -68,6 +70,30 @@ func (rm *ResourceMap) AllResourceIDs() []string {
 	}
 	return ids
 }
+
+// DeviceResources returns all resources for a given device name, keyed by type string.
+// Returns a map of {resourceIntID → type} for IHC-style numeric-pin resources.
+// Resources with non-numeric pins (e.g. Zigbee string pins) are skipped with a warning.
+func (rm *ResourceMap) DeviceResources(device string) map[int]string {
+	result := make(map[int]string)
+	skippedNonNumeric := 0
+	for _, r := range rm.byResourceID {
+		if r.Device != device {
+			continue
+		}
+		pin, ok := util.ToIntOk(r.Pin)
+		if !ok {
+			skippedNonNumeric++
+			continue
+		}
+		result[pin] = r.Type
+	}
+	if skippedNonNumeric > 0 {
+		fmt.Printf("[WARN] DeviceResources(%q): skipped %d resources with non-numeric pins\n", device, skippedNonNumeric)
+	}
+	return result
+}
+
 
 // makeAddressKey mirrors the TypeScript makeAddressKey from resource.util.ts.
 // For pin-based resources: "{device}:{type}:{pin}"

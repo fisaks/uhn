@@ -25,8 +25,9 @@ type ResolvedEdgeConfig struct {
 	LogFormat     string
 	RuntimeMode   string
 	DebugPort     int
-	DebugHost     string
-	TZ            string
+	DebugHost       string
+	TZ              string
+	SandboxMemoryMB int
 }
 
 // ResolveEdgeConfig merges env vars, config file edge settings, and defaults.
@@ -69,6 +70,14 @@ func ResolveEdgeConfig(cfgPath string, edge *EdgeSettings) *ResolvedEdgeConfig {
 	}
 	if r.DebugPort == 0 {
 		r.DebugPort = autoDebugPort(r.Name)
+	}
+
+	// Sandbox memory limit: env > default (1024 MB)
+	r.SandboxMemoryMB = 1024
+	if envMem := os.Getenv("UHN_SANDBOX_MEMORY_MB"); envMem != "" {
+		if m, err := strconv.Atoi(envMem); err == nil && m > 0 {
+			r.SandboxMemoryMB = m
+		}
 	}
 
 	// Persisted runtime config (from MQTT commands) takes highest precedence

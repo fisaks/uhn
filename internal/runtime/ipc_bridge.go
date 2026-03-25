@@ -118,6 +118,7 @@ type runtimeMessage struct {
 // It replaces supervisor.scanStdout().
 func (b *IPCBridge) ProcessStdout(ctx context.Context, pipe io.Reader, readyCh chan<- bool) {
 	scanner := bufio.NewScanner(pipe)
+	scanner.Buffer(make([]byte, 0, 4*1024*1024), 4*1024*1024) // 4MB max line size (250+ resources)
 	readySent := false
 
 	for scanner.Scan() {
@@ -356,6 +357,17 @@ func (b *IPCBridge) GetDecimalPrecisionForAddress(device, resourceType string, p
 		return -1
 	}
 	return *r.DecimalPrecision
+}
+
+// DeviceResourcesFromMap returns all resources for the given device from the
+// current ResourceMap. Returns nil, false if no ResourceMap is available.
+func (b *IPCBridge) DeviceResourcesFromMap(device string) (map[int]string, bool) {
+	rm := b.getResourceMap()
+	if rm == nil {
+		return nil, false
+	}
+	resources := rm.DeviceResources(device)
+	return resources, true
 }
 
 // HasResourceForAddress returns true if the current blueprint has a resource
@@ -671,9 +683,13 @@ func (b *IPCBridge) handleResourcesLoaded(ctx context.Context, raw []byte) {
 	// before sendFullStateUpdate() runs in onReady().
 	b.replayPhysicalStateCache(rm)
 
-	// Notify listeners (e.g. Z2M transport replays cached state)
+	// Notify listeners asynchronously to avoid blocking the stdout reader.
+	// The runtime sends resourcesLoaded → viewsLoaded → ... → ready in quick
+	// succession. If this callback blocks (e.g. Z2M state replay, IHC reconnect),
+	// the pipe buffer fills and the runtime blocks on stdout, causing a timeout.
 	if b.onResourceMapReady != nil {
-		b.onResourceMapReady(ctx)
+		cb := b.onResourceMapReady
+		go cb(ctx)
 	}
 }
 

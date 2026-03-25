@@ -78,6 +78,16 @@ type ResourceLookup interface {
 	GetDecimalPrecisionForAddress(device, resourceType string, pin any) int
 }
 
+// ResourceMapDeviceProvider extracts resources for a specific device from the
+// current ResourceMap. Used by drivers (e.g. IHC) that need to subscribe to
+// device-specific resources when the blueprint becomes available.
+type ResourceMapDeviceProvider interface {
+	// DeviceResourcesFromMap returns all resources for the given device.
+	// Returns a map of {pinInt → resourceType} and true, or nil and false if
+	// no ResourceMap is available yet.
+	DeviceResourcesFromMap(device string) (map[int]string, bool)
+}
+
 // ActionEventEmitter forwards transient action events (e.g. Zigbee button presses) to the
 // rule runtime. Unlike state updates, action events bypass the P/S/C state model entirely.
 type ActionEventEmitter interface {

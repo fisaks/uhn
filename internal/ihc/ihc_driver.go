@@ -16,6 +16,14 @@ import (
 // IHCDriver manages the lifecycle of a single IHC controller connection.
 // It handles authentication, notification subscriptions, the long-poll
 // notification loop, health-check canary, and command dispatch.
+//
+// Supports two modes:
+//   - Static: resources from config (legacy, when cfg.Resources is non-empty)
+//   - Dynamic: resources from ResourceMap (when a ResourceMapDeviceProvider is set)
+//
+// In dynamic mode, the driver authenticates immediately but waits for
+// OnResourceMapReady() before subscribing to IHC notifications. On blueprint
+// reload, it disconnects and re-subscribes with the new resource set.
 type IHCDriver struct {
 	cfg    *config.IHCControllerConfig
 	client *SOAPClient
@@ -27,61 +35,127 @@ type IHCDriver struct {
 	// All resource IDs to subscribe for notifications
 	allResourceIDs []int
 
+	// Dynamic resource provider (nil = use static config)
+	resourceMapProvider uhn.ResourceMapDeviceProvider
+
 	// Health-check canary
-	healthCheckIDs       []int
-	healthCheckSec       int
-	healthPending        map[int]bool // IDs we flipped, waiting for notification
-	healthPendingMu      sync.Mutex
-	healthLastValues     map[int]bool // canary resource IDs → last known value (flipped to determine next write value)
-	healthFailCount      int          // consecutive health-check failures
-	healthMaxFails       int          // failures before forcing reconnect
+	healthCheckIDs   []int
+	healthCheckSec   int
+	healthPending    map[int]bool // IDs we flipped, waiting for notification
+	healthPendingMu  sync.Mutex
+	healthLastValues map[int]bool // canary resource IDs → last known value (flipped to determine next write value)
+	healthFailCount  int          // consecutive health-check failures
+	healthMaxFails   int          // failures before forcing reconnect
 
 	// Notification watchdog
 	watchdogTimeout time.Duration
 
-	cancel context.CancelFunc
-	done   chan struct{}
+	// Lifecycle management
+	cancel       context.CancelFunc
+	done         chan struct{}
+	resourceCh   chan struct{} // signalled when ResourceMap changes
+	resourceOnce sync.Once    // ensures resourceCh is created once
 }
 
 // NewIHCDriver creates a driver for one IHC controller.
 func NewIHCDriver(cfg *config.IHCControllerConfig, state uhn.StateUpdater) *IHCDriver {
-	// Build resource type map and ID list
-	length := len(cfg.Resources)
-	resourceTypes := make(map[int]string, length)
-	allIDs := make([]int, 0, length)
-	for _, res := range cfg.Resources {
-		resourceTypes[res.ResourceIntID] = res.Type
-		allIDs = append(allIDs, res.ResourceIntID)
+	d := &IHCDriver{
+		cfg:             cfg,
+		client:          NewSOAPClient(cfg.Host, cfg.Port),
+		state:           state,
+		resourceTypes:   make(map[int]string),
+		healthPending:   make(map[int]bool),
+		watchdogTimeout: time.Duration(cfg.WaitTimeoutSec*3) * time.Second,
+		done:            make(chan struct{}),
+		resourceCh:      make(chan struct{}, 1),
 	}
 
-	// Include health-check resource IDs in subscription
-	for _, hcID := range cfg.HealthCheckResourceIDs {
+	// Populate from static config if present
+	d.loadStaticResources()
+
+	// Health-check config
+	if cfg.HealthCheck != nil {
+		d.healthCheckSec = cfg.HealthCheck.IntervalSec
+		d.healthMaxFails = cfg.HealthCheck.MaxFailures
+	}
+	d.healthCheckIDs = cfg.HealthCheckResourceIDs
+	d.healthLastValues = makeIDSet(cfg.HealthCheckResourceIDs)
+
+	return d
+}
+
+// SetResourceMapProvider enables dynamic mode: resources come from the ResourceMap
+// instead of (or in addition to) static config. Call before Start().
+func (d *IHCDriver) SetResourceMapProvider(provider uhn.ResourceMapDeviceProvider) {
+	d.resourceMapProvider = provider
+}
+
+// OnResourceMapReady is called when the blueprint's ResourceMap becomes available
+// or changes (reload). It triggers a reconnect with the new resource set.
+func (d *IHCDriver) OnResourceMapReady(ctx context.Context) {
+	if d.resourceMapProvider == nil {
+		return
+	}
+
+	resources, ok := d.resourceMapProvider.DeviceResourcesFromMap(d.cfg.Name)
+	if !ok || len(resources) == 0 {
+		logging.Info("IHC ResourceMap has no resources for this controller",
+			"controller", d.cfg.Name)
+		return
+	}
+
+	d.updateResources(resources)
+	logging.Info("IHC resources updated from ResourceMap",
+		"controller", d.cfg.Name,
+		"resources", len(resources))
+
+	// Signal the notification loop to reconnect with new resources
+	select {
+	case d.resourceCh <- struct{}{}:
+	default:
+	}
+}
+
+// updateResources replaces the resource type map and ID list from a ResourceMap result.
+func (d *IHCDriver) updateResources(resources map[int]string) {
+	resourceTypes := make(map[int]string, len(resources))
+	allIDs := make([]int, 0, len(resources))
+	for pin, resType := range resources {
+		resourceTypes[pin] = resType
+		allIDs = append(allIDs, pin)
+	}
+
+	// Include health-check IDs not already in the resource list
+	for _, hcID := range d.healthCheckIDs {
 		if _, exists := resourceTypes[hcID]; !exists {
 			allIDs = append(allIDs, hcID)
 		}
 	}
 
-	healthCheckSec := 0
-	healthMaxFails := 0
-	if cfg.HealthCheck != nil {
-		healthCheckSec = cfg.HealthCheck.IntervalSec
-		healthMaxFails = cfg.HealthCheck.MaxFailures
-	}
+	d.resourceTypes = resourceTypes
+	d.allResourceIDs = allIDs
+}
 
-	return &IHCDriver{
-		cfg:             cfg,
-		client:          NewSOAPClient(cfg.Host, cfg.Port),
-		state:           state,
-		resourceTypes:   resourceTypes,
-		allResourceIDs:  allIDs,
-		healthCheckIDs:   cfg.HealthCheckResourceIDs,
-		healthCheckSec:   healthCheckSec,
-		healthPending:    make(map[int]bool),
-		healthLastValues: makeIDSet(cfg.HealthCheckResourceIDs),
-		healthMaxFails:   healthMaxFails,
-		watchdogTimeout: time.Duration(cfg.WaitTimeoutSec*3) * time.Second,
-		done:            make(chan struct{}),
+// loadStaticResources populates from cfg.Resources (legacy mode).
+func (d *IHCDriver) loadStaticResources() {
+	length := len(d.cfg.Resources)
+	if length == 0 {
+		return
 	}
+	resourceTypes := make(map[int]string, length)
+	allIDs := make([]int, 0, length)
+	for _, res := range d.cfg.Resources {
+		resourceTypes[res.ResourceIntID] = res.Type
+		allIDs = append(allIDs, res.ResourceIntID)
+	}
+	// Include health-check resource IDs in subscription
+	for _, hcID := range d.cfg.HealthCheckResourceIDs {
+		if _, exists := resourceTypes[hcID]; !exists {
+			allIDs = append(allIDs, hcID)
+		}
+	}
+	d.resourceTypes = resourceTypes
+	d.allResourceIDs = allIDs
 }
 
 // Start begins the driver's lifecycle: authenticate, subscribe, and run the
@@ -91,12 +165,34 @@ func (d *IHCDriver) Start(ctx context.Context) {
 	ctx, d.cancel = context.WithCancel(ctx)
 	defer close(d.done)
 
+	// In dynamic mode with no static resources, wait for ResourceMap first
+	if len(d.allResourceIDs) == 0 && d.resourceMapProvider != nil {
+		logging.Info("IHC waiting for ResourceMap before connecting",
+			"controller", d.cfg.Name)
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.resourceCh:
+			// ResourceMap is ready, proceed
+		}
+	}
+
 	backoff := 5 * time.Second
 	const maxBackoff = 60 * time.Second
 
 	for {
 		if ctx.Err() != nil {
 			return
+		}
+
+		if len(d.allResourceIDs) == 0 {
+			// No resources to subscribe to — wait for ResourceMap signal
+			select {
+			case <-ctx.Done():
+				return
+			case <-d.resourceCh:
+				continue
+			}
 		}
 
 		if err := d.connectAndRun(ctx); err != nil {
@@ -108,6 +204,10 @@ func (d *IHCDriver) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-d.resourceCh:
+				// ResourceMap changed — reconnect immediately with new resources
+				backoff = 5 * time.Second
+				continue
 			case <-time.After(backoff):
 			}
 			backoff = min(backoff*2, maxBackoff)
@@ -155,7 +255,7 @@ func (d *IHCDriver) connectAndRun(ctx context.Context) error {
 // notificationLoop runs the long-poll wait loop and processes incoming values.
 func (d *IHCDriver) notificationLoop(ctx context.Context) error {
 	consecutiveErrors := 0
-	//Guards against the long-poll WaitForResourceValueChanges hanging indefinitely. 
+	//Guards against the long-poll WaitForResourceValueChanges hanging indefinitely.
 	watchdogTimer := time.NewTimer(d.watchdogTimeout)
 	defer watchdogTimer.Stop()
 
@@ -169,6 +269,12 @@ func (d *IHCDriver) notificationLoop(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-d.resourceCh:
+			// ResourceMap changed — disconnect and let caller reconnect
+			logging.Info("IHC ResourceMap changed, reconnecting with new resources",
+				"controller", d.cfg.Name)
+			_ = d.client.Disconnect(ctx)
+			return nil // clean return triggers reconnect in Start()
 		default:
 		}
 
@@ -386,7 +492,6 @@ func (d *IHCDriver) SetOutput(ctx context.Context, pin any, value any) error {
 		return err
 	})
 }
-
 
 // withReauth executes fn and retries once after a full reconnect (reauth +
 // re-enable notifications) if the session has expired. This ensures commands

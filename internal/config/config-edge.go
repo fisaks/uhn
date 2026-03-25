@@ -39,7 +39,7 @@ type IHCControllerConfig struct {
 	WaitTimeoutSec       int                   `json:"waitTimeoutSec"`
 	MaxConsecutiveErrors int                   `json:"maxConsecutiveErrors"`
 	HealthCheck          *IHCHealthCheckConfig `json:"healthCheck,omitempty"`
-	Resources            []*IHCResourceConfig  `json:"resources"`
+	Resources            []*IHCResourceConfig  `json:"resources,omitempty"`
 
 	// Runtime only (loaded from credentials file)
 	Username string `json:"-"`
@@ -610,10 +610,7 @@ func (c *EdgeConfig) validateIHC(errs *multiErr) {
 			}
 		}
 
-		// Resources
-		if len(ctrl.Resources) == 0 {
-			errs.addf("%s: resources cannot be empty", prefix)
-		}
+		// Resources (optional — can be empty when using ResourceMap from blueprint)
 		seenIDs := map[int]bool{}
 		for j, res := range ctrl.Resources {
 			resPrefix := fmt.Sprintf("%s.resources[%d]", prefix, j)

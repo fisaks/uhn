@@ -137,12 +137,15 @@ func main() {
 		var ihcDrivers []*ihc.IHCDriver
 		for _, ihcCfg := range cfg.IHCControllers {
 			driver := ihc.NewIHCDriver(ihcCfg, ipcBridge)
+			// Enable dynamic resource subscription from ResourceMap
+			// (works alongside or instead of static config resources)
+			driver.SetResourceMapProvider(ipcBridge)
 			drivers[ihcCfg.Name] = driver
 			ihcDrivers = append(ihcDrivers, driver)
 			logging.Info("IHC driver created",
 				"controller", ihcCfg.Name,
 				"host", ihcCfg.Host,
-				"resources", len(ihcCfg.Resources))
+				"staticResources", len(ihcCfg.Resources))
 		}
 
 		// Create Mi-Light transports and zone drivers
@@ -201,12 +204,19 @@ func main() {
 				"baseTopic", z2mCfg.BaseTopic)
 		}
 
-		// Replay Z2M cached state when ResourceMap is built
-		if len(zigbeeTransports) > 0 {
+		// When ResourceMap is built (blueprint loaded/reloaded):
+		// - Replay Z2M cached state
+		// - Notify IHC drivers to subscribe with resources from the blueprint
+		// All run in parallel — they don't depend on each other.
+		{
 			transports := zigbeeTransports // capture for closure
+			ihcDriversCopy := ihcDrivers   // capture for closure
 			ipcBridge.SetOnResourceMapReady(func(ctx context.Context) {
 				for _, tr := range transports {
-					tr.ReplayCachedState(ctx)
+					go tr.ReplayCachedState(ctx)
+				}
+				for _, d := range ihcDriversCopy {
+					d.OnResourceMapReady(ctx) // non-blocking: just swaps map + signals channel
 				}
 			})
 		}
