@@ -313,18 +313,19 @@ func enterSandboxRoot(root string) {
 
 func mountSandboxFilesystem(root string, paths SandboxHostPaths) {
 
-	// host-provided mounts
+	// system mounts (before host-provided, so overlays work)
+	bind("/bin", root+"/bin", true)
+	bind("/lib", root+"/lib", true)
+	bindIfExists("/lib64", root+"/lib64", true)
+	bind("/usr/bin", root+"/usr/bin", true)
+	bind("/usr/lib", root+"/usr/lib", true)
+
+	// host-provided mounts (overlay on top of system mounts)
 	bind(paths.Runtime, root+"/uhn-runtime", true)
 	bind(paths.Node, root+"/uhn-node", true)
 	bind(paths.Workspace+"/sandbox/current", root+"/uhn-workspace/sandbox/current", true)
 	bind(paths.Workspace+"/blueprint/active", root+"/uhn-workspace/blueprint/active", true)
 	bind(paths.Sandbox, root+"/usr/lib/uhn", true)
-
-	// system mounts
-	bind("/bin", root+"/bin", true)
-	bind("/lib", root+"/lib", true)
-	bind("/lib64", root+"/lib64", true)
-	bind("/usr/bin", root+"/usr/bin", true)
 
 	// tmpfs
 	if err := syscall.Mount("tmpfs", root+"/tmp", "tmpfs", 0, "size=128M"); err != nil {
@@ -423,6 +424,13 @@ func dropPrivileges(uid, gid int) {
 
 }
 
+func bindIfExists(src, dst string, readonly bool) {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return
+	}
+	bind(src, dst, readonly)
+}
+
 func bind(src, dst string, readonly bool) {
 	flags := uintptr(syscall.MS_BIND | syscall.MS_REC)
 	if err := syscall.Mount(src, dst, "", flags, ""); err != nil {
@@ -492,11 +500,16 @@ func initSandboxRoot(root string) {
 		root + "/tmp",
 		root + "/bin",
 		root + "/lib",
-		root + "/lib64",
 		root + "/usr/bin",
+		root + "/usr/lib",
 		root + "/usr/lib/uhn",
 		root + "/proc",
 		root + "/dev",
+	}
+
+	// /lib64 only exists on glibc-based systems (Debian/Ubuntu), not Alpine
+	if _, err := os.Stat("/lib64"); err == nil {
+		dirs = append(dirs, root+"/lib64")
 	}
 
 	for _, d := range dirs {

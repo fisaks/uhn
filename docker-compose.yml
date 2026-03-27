@@ -11,7 +11,7 @@ services:
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
-    profiles: ["dev", "dev-real", "prod", "test", "zigbee"]
+    profiles: ["dev", "zigbee"]
 
   zigbee2mqtt:
     image: koenkk/zigbee2mqtt
@@ -20,7 +20,7 @@ services:
     ports: ["8081:8080"]
     volumes:
       - ./zigbee2mqtt/data:/app/data
-      - /run/udev:/run/udev:ro  # host udev database for USB device detection (/dev/serial/by-id/)
+      - /run/udev:/run/udev:ro
     devices:
       - ${ZIGBEE_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
     privileged: true
@@ -30,47 +30,3 @@ services:
       - TZ=${TZ:-UTC}
     depends_on: [mosquitto]
     profiles: ["zigbee"]
-
-  # Dev/Test: edge + simulator in same container using virtual PTYs
-  edge-dev:
-    build:
-      context: .
-      dockerfile: ./cmd/server/edge/Dockerfile.dev
-    depends_on: [mosquitto]
-    ports: ["8080:8080"] # Simulator REST API
-    environment:
-      - UHN_MQTT_URL=tcp://mosquitto:1883
-      - UHN_EDGE_NAME=edge-dev-1
-      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
-    profiles: ["dev", "test"]
-
-  # Prod: edge only, talking to a real RS-485 dongle (/dev/ttyUSB0)
-  edge:
-    build:
-      context: .
-      dockerfile: ./cmd/server/edge/Dockerfile
-    depends_on: [mosquitto]
-    environment:
-      - UHN_MQTT_URL=tcp://mosquitto:1883
-      - UHN_EDGE_NAME=edge1
-      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
-    # Pass real serial device through to container
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-    # some hosts require privileged to toggle RS-485 RTS
-    # privileged: true
-    profiles: ["prod"]
-
-  # Dev-real: use real device during dev (no simulator), but keep other dev services
-  edge-dev-real:
-    build:
-      context: .
-      dockerfile: ./cmd/server/edge/Dockerfile
-    depends_on: [mosquitto]
-    environment:
-      - UHN_MQTT_URL=tcp://mosquitto:1883
-      - UHN_EDGE_NAME=edge-dev-real-1
-      - UHN_EDGE_CONFIG_PATH=/config/edge-config.json
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-    profiles: ["dev-real"]
