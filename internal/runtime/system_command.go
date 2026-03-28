@@ -136,7 +136,7 @@ func (h *SystemCommandHandler) handleSetDebugPort(ctx context.Context, payload j
 		logging.Warn("Invalid setDebugPort payload", "error", err)
 		return err
 	}
-	if p.DebugPort < 1024 || p.DebugPort > 65535 {
+	if p.DebugPort < 9251 || p.DebugPort > 9299 {
 		logging.Warn("Invalid debug port", "port", p.DebugPort)
 		return nil
 	}

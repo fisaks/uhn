@@ -168,7 +168,7 @@ func envOrDefault(key, def string) string {
 }
 
 // autoDebugPort derives a deterministic debug port from the edge name.
-// Range: 9250–9299 (master uses 9250, so edges with auto port get 9251–9299).
+// Range: 9251–9299 (master uses 9240–9250, edges get 9251–9299).
 func autoDebugPort(edgeName string) int {
 	h := fnv.New32a()
 	h.Write([]byte(edgeName))

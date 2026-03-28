@@ -196,12 +196,49 @@ This mode exists **exclusively for debugging**.
 When using `network: "debug-attach"`:
 
 ```
-debugListen: "0.0.0.0:9250"
+debugListen: "0.0.0.0:<port>"
 ```
 
 - Controls where the host-side debug forwarder listens
 - The sandbox itself always listens on `127.0.0.1`
 - Firewalling and access control are the responsibility of the host
+
+#### Debug port ranges
+
+Master and edge use separate port ranges to avoid collisions when running on the same host:
+
+| Instance | Range | Default | Notes |
+|----------|-------|---------|-------|
+| Master | 9240–9250 | 9250 | Exposed via docker-compose port mapping |
+| Edge | 9251–9299 | Auto (FNV hash of edge name) | Host networking, no mapping needed |
+
+Edge auto-port is deterministic: `edge1` → 9290. Configurable via the system UI (per-instance).
+
+Validation is enforced in the UI, master backend, edge config, and edge runtime command handler.
+
+#### Debug mode in Docker (production)
+
+In development, debug mode uses `pnpm tsx --inspect` on TypeScript source files. In production Docker images, `tsx` is not available (dev-only dependency). The runtime detects this by checking if `.ts` source files exist:
+
+- **Dev (TS source exists):** `pnpm tsx --inspect=127.0.0.1:<port> src/rule-runtime.ts`
+- **Prod (no TS source):** `node --inspect=127.0.0.1:<port> dist/rule-runtime.js`
+
+Both modes use the same sandbox `debug-attach` network configuration and debug forwarder.
+
+#### Source maps
+
+All rule-runtime packages are compiled with `sourceMap: true` and `inlineSources: true`:
+
+- `@uhn/rule-runtime`
+- `@uhn/blueprint`
+- `@uhn/common`
+- `@uxp/common`
+
+`inlineSources` embeds the original TypeScript in the `.map` files, so no source files need to be present in the production Docker image. Source maps have no runtime performance cost — Node.js only reads them when a debugger attaches.
+
+The blueprint is recompiled with source maps by the master when debug mode is enabled (via the system UI). This covers both the rule-runtime framework code and user-authored blueprint rules.
+
+VS Code attaches via `sourceMapPathOverrides` to map sandbox paths (e.g. `/uhn-workspace/blueprint/active/src/*`) to local source files.
 
 ---
 

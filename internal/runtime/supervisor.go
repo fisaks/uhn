@@ -341,6 +341,16 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 		cfg.Network = config.NetworkDebugAttach
 		cfg.DebugListen = "0.0.0.0:" + debugAddr
 
+	case "debug-prod":
+		cfg.Command = "node"
+		cfg.Args = []string{
+			"--inspect=127.0.0.1:" + debugAddr,
+			"/uhn-runtime/packages/uhn-rule-runtime/dist/rule-runtime.js",
+			blueprintPath, "edge", s.edgeName,
+		}
+		cfg.Network = config.NetworkDebugAttach
+		cfg.DebugListen = "0.0.0.0:" + debugAddr
+
 	case "dev":
 		cfg.Command = "pnpm"
 		cfg.Args = []string{
@@ -362,15 +372,23 @@ func (s *RuntimeSupervisor) buildSandboxConfig() (*config.SandboxConfig, error) 
 }
 
 func (s *RuntimeSupervisor) detectMode() string {
-	if s.runtimeMode == "debug" {
-		return "debug"
-	}
-
+	hasTsSource := false
 	if s.runtimePath != "" {
 		tsPath := filepath.Join(s.runtimePath, "packages", "uhn-rule-runtime", "src", "rule-runtime.ts")
 		if _, err := os.Stat(tsPath); err == nil {
-			return "dev"
+			hasTsSource = true
 		}
+	}
+
+	if s.runtimeMode == "debug" {
+		if hasTsSource {
+			return "debug"
+		}
+		return "debug-prod"
+	}
+
+	if hasTsSource {
+		return "dev"
 	}
 
 	return "prod"

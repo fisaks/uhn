@@ -262,8 +262,8 @@ func (c *EdgeConfig) Validate() error {
 	if c.Edge.RuntimeMode != "" && !validRuntimeModes[strings.ToLower(c.Edge.RuntimeMode)] {
 		errs.addf("edge.runtimeMode: must be one of normal, debug (got %q)", c.Edge.RuntimeMode)
 	}
-	if c.Edge.DebugPort != 0 && (c.Edge.DebugPort < 1024 || c.Edge.DebugPort > 65535) {
-		errs.addf("edge.debugPort: must be in range 1024-65535 (got %d)", c.Edge.DebugPort)
+	if c.Edge.DebugPort != 0 && (c.Edge.DebugPort < 9251 || c.Edge.DebugPort > 9299) {
+		errs.addf("edge.debugPort: must be in range 9251-9299 (got %d)", c.Edge.DebugPort)
 	}
 	if c.Edge.LogFormat != "" && c.Edge.LogFormat != "json" && c.Edge.LogFormat != "text" {
 		errs.addf("edge.logFormat: must be json or text (got %q)", c.Edge.LogFormat)
