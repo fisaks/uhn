@@ -385,6 +385,33 @@ full interactive terminal usage.
 
 ---
 
+## Running in Docker
+
+The sandbox runs inside Docker containers (uhn-master and edge) in production. This requires specific Docker configuration:
+
+### Container privileges
+
+- `privileged: true` — needed for `unshare()`, `chroot()`, `mount()`, `mknod()`, and cgroup operations
+- `cgroup: host` — shares the host cgroup namespace so the sandbox can create cgroups and write to `memory.max`, `pids.max`, `cgroup.procs`
+
+Without these, the sandbox fails at cgroup creation or cgroup file writes (permission denied).
+
+### Alpine base image
+
+Production containers use Alpine (musl libc). The sandbox must mount `/usr/lib` in addition to `/lib` and `/usr/bin` because Node.js on Alpine links against `libstdc++.so.6` and `libgcc_s.so.1` in `/usr/lib/`. The `/lib64` mount is skipped on Alpine (only exists on glibc systems like Debian/Ubuntu).
+
+### Blueprint dependencies
+
+On the dev laptop, `UHN_RUNTIME_PATH` points to the uxp monorepo root. The entire monorepo is mounted as `/uhn-runtime` inside the sandbox, so pnpm's workspace module resolution provides all blueprint dependencies.
+
+In Docker, the runtime image is a stripped-down copy without the full monorepo structure. Blueprint dependencies (`@uhn/blueprint`, `luxon`, `nanoid`, `uuid`, etc.) are pre-built as symlinks at `/uhn-blueprint-deps/node_modules` in the edge Docker image. The sandbox-setup bind-mounts this to `/uhn-workspace/blueprint/node_modules` inside the chroot, so Node's module resolution finds them when walking up from the blueprint code. The pre-built deps must match the allowed dependencies in the master's blueprint compiler (`allDeps` in `blueprint-compiler.util.ts`).
+
+### Container user
+
+The container starts as root (needed for cgroup setup), then drops to the `uhn` user via `su`. The sandbox-setup binary has the setuid bit (`chmod u+s`) so it can escalate back to root for namespace/cgroup operations, then permanently drops privileges to `uhn` before exec'ing sandboxd.
+
+---
+
 ## Summary
 
 The UHN sandbox is intentionally:
