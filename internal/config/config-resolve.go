@@ -14,9 +14,11 @@ import (
 // ResolvedEdgeConfig holds the final resolved configuration after merging
 // env vars, config file settings, and defaults. Priority: env var > config file > default.
 type ResolvedEdgeConfig struct {
-	Name          string
-	MqttURL       string
-	ConfigPath    string
+	Name            string
+	MqttURL         string
+	MqttUser        string
+	MqttPassword    string
+	ConfigPath      string
 	WorkspacePath string
 	SandboxPath   string
 	NodePath      string
@@ -43,6 +45,10 @@ func ResolveEdgeConfig(cfgPath string, edge *EdgeSettings) *ResolvedEdgeConfig {
 	// Identity & connectivity: env > config (name has no default — must be set)
 	r.Name = resolve(os.Getenv("UHN_EDGE_NAME"), edge.Name, "")
 	r.MqttURL = resolve(os.Getenv("UHN_MQTT_URL"), edge.Mqtt, "tcp://localhost:1883")
+
+	// MQTT credentials: env only (credentials shouldn't live in config files)
+	r.MqttUser = os.Getenv("UHN_MQTT_USER")
+	r.MqttPassword = os.Getenv("UHN_MQTT_PASSWORD")
 
 	// Runtime behavior: env > config > default
 	r.LogLevel = resolve(strings.ToLower(os.Getenv("UHN_LOG_LEVEL")), strings.ToLower(edge.LogLevel), "info")

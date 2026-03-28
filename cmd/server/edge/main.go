@@ -70,6 +70,8 @@ func main() {
 		BrokerURL:        resolvedConfig.MqttURL,
 		ClientName:       resolvedConfig.Name,
 		TopicPrefix:      topicPrefix,
+		Username:         resolvedConfig.MqttUser,
+		Password:         resolvedConfig.MqttPassword,
 		ConnectTimeout:   10 * time.Second,
 		PublishTimeout:   5 * time.Second,
 		SubscribeTimeout: 5 * time.Second,

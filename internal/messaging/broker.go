@@ -68,6 +68,8 @@ type BrokerConfig struct {
 	ClientName       string
 	TopicPrefix      string
 	CleanSession     bool
+	Username         string
+	Password         string
 	ConnectTimeout   time.Duration
 	PublishTimeout   time.Duration
 	SubscribeTimeout time.Duration
@@ -118,6 +120,10 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 
 	opts := mqtt.NewClientOptions().AddBroker(b.config.BrokerURL)
 	opts.SetClientID("uhn-" + b.config.ClientName)
+	if b.config.Username != "" {
+		opts.SetUsername(b.config.Username)
+		opts.SetPassword(b.config.Password)
+	}
 	opts.SetConnectTimeout(b.config.ConnectTimeout)
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
