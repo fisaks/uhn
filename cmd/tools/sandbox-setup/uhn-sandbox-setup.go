@@ -327,6 +327,13 @@ func mountSandboxFilesystem(root string, paths SandboxHostPaths) {
 	bind(paths.Workspace+"/blueprint/active", root+"/uhn-workspace/blueprint/active", true)
 	bind(paths.Sandbox, root+"/usr/lib/uhn", true)
 
+	// Pre-built blueprint dependencies (Docker only — dev resolves via monorepo)
+	blueprintDeps := "/uhn-blueprint-deps/node_modules"
+	if _, err := os.Stat(blueprintDeps); err == nil {
+		os.MkdirAll(root+"/uhn-workspace/blueprint/node_modules", 0755)
+		bind(blueprintDeps, root+"/uhn-workspace/blueprint/node_modules", true)
+	}
+
 	// tmpfs
 	if err := syscall.Mount("tmpfs", root+"/tmp", "tmpfs", 0, "size=128M"); err != nil {
 		util.Fatal("uhn-sandbox-setup", "mount tmpfs failed %v", err)
