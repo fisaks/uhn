@@ -52,3 +52,4 @@ config/devserver-live.conf
 .pytest_cache/
 /zigbee2mqtt/data/*
 !/zigbee2mqtt/data/configuration.yaml.template
+config/mqtt-credentials-*.json

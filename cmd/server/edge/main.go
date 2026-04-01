@@ -167,9 +167,29 @@ func main() {
 
 		// Create Zigbee transports and drivers
 		var zigbeeTransports []*zigbee.ZigbeeTransport
+		var z2mBrokers []messaging.Broker // per-adapter brokers to close on shutdown
 		edgeCatalog.SetBroker(edgeBroker)
 		for _, z2mCfg := range cfg.Zigbee {
-			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, ipcBridge, edgeBroker)
+			var z2mBroker messaging.Broker
+			if z2mCfg.Mqtt != "" {
+				z2mBroker = messaging.NewBroker(messaging.BrokerConfig{
+					BrokerURL:        z2mCfg.Mqtt,
+					ClientName:       resolvedConfig.Name + "_" + z2mCfg.Name,
+					Username:         z2mCfg.MqttUsername,
+					Password:         z2mCfg.MqttPassword,
+					ConnectTimeout:   10 * time.Second,
+					PublishTimeout:   5 * time.Second,
+					SubscribeTimeout: 5 * time.Second,
+				})
+				z2mBroker.Connect(ctx)
+				z2mBrokers = append(z2mBrokers, z2mBroker)
+				logging.Info("Z2M adapter using separate MQTT broker",
+					"adapter", z2mCfg.Name,
+					"broker", z2mCfg.Mqtt)
+			} else {
+				z2mBroker = edgeBroker
+			}
+			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, ipcBridge, z2mBroker)
 			// Called after bridge/devices: register drivers + republish catalog
 			transport.SetOnDevicesDiscovered(func() {
 				// Register any new Z2M drivers
@@ -204,6 +224,11 @@ func main() {
 			logging.Info("Zigbee transport created",
 				"adapter", z2mCfg.Name,
 				"baseTopic", z2mCfg.BaseTopic)
+		}
+		// Close per-adapter Z2M brokers on shutdown
+		for _, b := range z2mBrokers {
+			broker := b
+			defer broker.Close(ctx)
 		}
 
 		// When ResourceMap is built (blueprint loaded/reloaded):

@@ -53,6 +53,11 @@ type ihcCredentialsFile map[string]struct {
 	Password string `json:"password"`
 }
 
+type mqttCredentialsFile map[string]struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type EdgeSettings struct {
 	Name        string `json:"name,omitempty"`
 	Mqtt        string `json:"mqtt,omitempty"`
@@ -116,6 +121,9 @@ type EdgeConfig struct {
 	// Mi-Light gateways (optional, can coexist with Modbus and IHC)
 	Milights []*MilightConfig `json:"milights,omitempty"`
 
+	// MQTT credentials for per-adapter broker connections (Zigbee with separate broker)
+	MqttCredentialsFile string `json:"mqttCredentialsFile,omitempty"`
+
 	// Zigbee adapters via Zigbee2MQTT (optional, can coexist with all other protocols)
 	Zigbee []*ZigbeeAdapterConfig `json:"zigbee,omitempty"`
 }
@@ -124,7 +132,12 @@ type EdgeConfig struct {
 type ZigbeeAdapterConfig struct {
 	Name      string                `json:"name"`                // adapter name, e.g. "zigbee_1"
 	BaseTopic string                `json:"baseTopic,omitempty"` // Z2M base topic, default "zigbee2mqtt"
+	Mqtt      string                `json:"mqtt,omitempty"`      // optional separate broker URL for this adapter
 	Devices   []*ZigbeeDeviceConfig `json:"devices"`             // devices to expose to blueprints
+
+	// Runtime only (loaded from MQTT credentials file when Mqtt is set)
+	MqttUsername string `json:"-"`
+	MqttPassword string `json:"-"`
 }
 
 // ZigbeeDeviceConfig configures a single Z2M device exposed to blueprints.
@@ -713,6 +726,22 @@ func loadIHCCredentials(path string) (ihcCredentialsFile, error) {
 	return creds, nil
 }
 
+func loadMqttCredentials(path string) (mqttCredentialsFile, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open MQTT credentials file: %w", err)
+	}
+	defer f.Close()
+
+	var creds mqttCredentialsFile
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&creds); err != nil {
+		return nil, fmt.Errorf("parse MQTT credentials file: %w", err)
+	}
+	return creds, nil
+}
+
 /* =========================
    Mi-Light validation
    ========================= */
@@ -798,6 +827,17 @@ func (c *EdgeConfig) validateMilight(errs *multiErr) {
    ========================= */
 
 func (c *EdgeConfig) validateZigbee(errs *multiErr) {
+	// Load MQTT credentials if provided (optional — adapters can connect without auth)
+	var mqttCreds mqttCredentialsFile
+	if c.MqttCredentialsFile != "" {
+		var err error
+		mqttCreds, err = loadMqttCredentials(c.MqttCredentialsFile)
+		if err != nil {
+			errs.addf("mqttCredentialsFile: %v", err)
+			return
+		}
+	}
+
 	seenAdapterNames := map[string]bool{}
 	seenDeviceNames := map[string]string{} // device name → adapter name (for cross-adapter uniqueness)
 	for i, z := range c.Zigbee {
@@ -833,6 +873,14 @@ func (c *EdgeConfig) validateZigbee(errs *multiErr) {
 				} else {
 					seenDeviceNames[dev.Name] = z.Name
 				}
+			}
+		}
+
+		// Resolve MQTT credentials for adapters with separate broker (if credentials file provided)
+		if z.Mqtt != "" && mqttCreds != nil {
+			if entry, ok := mqttCreds[z.Name]; ok {
+				z.MqttUsername = entry.Username
+				z.MqttPassword = entry.Password
 			}
 		}
 
