@@ -613,6 +613,40 @@ func (b *IPCBridge) HandleSetState(ctx context.Context, resourceID string, value
 	}
 }
 
+// HandleSetStateSilent is like HandleSetState but sends a silent state update
+// that does not trigger rule events (onChanged, etc.) in the runtime.
+// Used by setVirtualState to replicate state to the UI without causing rule cascades.
+func (b *IPCBridge) HandleSetStateSilent(ctx context.Context, resourceID string, value any, timestamp int64) {
+	// Forward to runtime with silent flag
+	cmd := StateUpdateCommand{
+		Kind: "event",
+		Cmd:  "stateUpdate",
+		Payload: RuntimeResourceState{
+			ResourceID: resourceID,
+			Value:      value,
+			Timestamp:  timestamp,
+			Silent:     true,
+		},
+	}
+	if err := b.writeJSON(cmd); err != nil {
+		logging.Error("HandleSetStateSilent: failed to forward stateUpdate to runtime", "resourceId", resourceID, "error", err)
+	}
+
+	// Update local computed state
+	b.stateMu.Lock()
+	b.computedState[resourceID] = value
+	b.stateMu.Unlock()	
+
+	// Publish to MQTT so master receives the state (with silent flag)
+	if b.logicalResourceStatePublisher != nil {
+		b.logicalResourceStatePublisher.Publish(ctx, LogicalResourceStateChangedPayload{
+			ResourceID: resourceID,
+			Value:      value,
+			Silent:     true,
+		}, timestamp)
+	}
+}
+
 // handleActions processes an actions event from the runtime.
 func (b *IPCBridge) handleActions(ctx context.Context, raw []byte) {
 	var event ActionsEvent

@@ -8,6 +8,7 @@ type RuntimeResourceState struct {
 	ResourceID string `json:"resourceId"`
 	Value      any    `json:"value"`
 	Timestamp  int64  `json:"timestamp"`
+	Silent     bool   `json:"silent,omitempty"`
 }
 
 // RuntimeResource describes a resource known to the runtime.
@@ -28,7 +29,7 @@ const MaxActionDepth = 10
 // RuntimeAction is emitted by the rule engine when a rule fires.
 // Fields are a superset of all action types; only relevant fields are populated.
 type RuntimeAction struct {
-	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute" | "emitAction" | "setActionOutput"
+	Type       string `json:"type"`                 // "setDigitalOutput" | "setAnalogOutput" | "emitSignal" | "timerStart" | "timerClear" | "mute" | "clearMute" | "emitAction" | "setActionOutput" | "setVirtualState"
 	ResourceID string `json:"resourceId,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	// emitAction-specific fields
@@ -121,6 +122,7 @@ type LogicalResourceStateChangedPayload struct {
 	Value      any                          `json:"value"`
 	Timestamp  int64                        `json:"timestamp"`
 	Details    *LogicalResourceStateDetails `json:"details,omitempty"`
+	Silent     bool                         `json:"silent,omitempty"`
 }
 
 // LogicalResourceStateDetails carries type-specific metadata for logical resources.
@@ -136,6 +138,7 @@ type LogicalResourceMQTTPayload struct {
 	Value      any                          `json:"value"`
 	Timestamp  int64                        `json:"timestamp"`
 	Details    *LogicalResourceStateDetails `json:"details,omitempty"`
+	Silent     bool                         `json:"silent,omitempty"`
 }
 
 // LogicalResourceCommandMQTTPayload is the JSON payload for logical resource command MQTT messages
@@ -146,6 +149,7 @@ type LogicalResourceMQTTPayload struct {
 type LogicalResourceCommandMQTTPayload struct {
 	ResourceID   string         `json:"resourceId"`
 	Action       string         `json:"action"` // "start" | "clear" | "tap" | "longPress" | "setState" | "action" | "setActionOutput"
+	Silent       bool           `json:"silent,omitempty"`
 	Value        any            `json:"value,omitempty"`
 	DurationMs   int64          `json:"durationMs,omitempty"`
 	Mode         string         `json:"mode,omitempty"` // "restart" | "startOnce"

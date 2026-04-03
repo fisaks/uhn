@@ -79,7 +79,11 @@ func (s *ResourceCmdSubscriber) OnMessage(ctx context.Context, topic string, pay
 	case "start", "clear":
 		s.forwardTimerCommand(resourceID, msg)
 	case "setState":
-		s.ipcBridge.HandleSetState(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
+		if msg.Silent {
+			s.ipcBridge.HandleSetStateSilent(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
+		} else {
+			s.ipcBridge.HandleSetState(ctx, msg.ResourceID, msg.Value, msg.Timestamp)
+		}
 	case "action":
 		s.forwardActionCommand(resourceID, msg)
 	case "setActionOutput":

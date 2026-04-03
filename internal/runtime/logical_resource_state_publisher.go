@@ -31,6 +31,7 @@ func (p *LogicalResourceStatePublisher) Publish(ctx context.Context, state Logic
 		Value:      state.Value,
 		Timestamp:  timestamp,
 		Details:    state.Details,
+		Silent:     state.Silent,
 	}
 
 	data, err := json.Marshal(payload)

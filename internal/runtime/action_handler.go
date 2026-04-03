@@ -70,6 +70,8 @@ func (h *EdgeActionHandler) HandleRuntimeAction(ctx context.Context, action Runt
 		h.handleEmitAction(ctx, action, resource)
 	case "setActionOutput":
 		h.handleSetActionOutput(ctx, action, resource)
+	case "setVirtualState":
+		h.handleSetVirtualState(ctx, action, resource)
 	case "mute", "clearMute":
 		h.handleMuteAction(ctx, action)
 	default:
@@ -171,6 +173,18 @@ func (h *EdgeActionHandler) handleSetAnalogOutput(ctx context.Context, action Ru
 	} else {
 		logging.Debug("setAnalogOutput pushed", "resourceId", action.ResourceID, "pin", config.FormatPin(pinInt), "value", value)
 	}
+}
+
+// handleSetVirtualState updates a virtual resource's state silently — the state is
+// replicated to the UI (via MQTT) and stored locally, but does NOT trigger rule events
+// (onChanged, onActivated, etc.) in the runtime. Used for display-only state updates
+// where the value should be visible but must not cause rule cascades.
+func (h *EdgeActionHandler) handleSetVirtualState(ctx context.Context, action RuntimeAction, resource *RuntimeResource) {
+	if resource.Type != "virtualAnalogOutput" && resource.Type != "virtualDigitalInput" {
+		logging.Warn("setVirtualState on non-virtual resource", "resourceId", action.ResourceID, "type", resource.Type)
+		return
+	}
+	h.ipcBridge.HandleSetStateSilent(ctx, action.ResourceID, action.Value, time.Now().UnixMilli())
 }
 
 // toUint16Value converts a numeric value (typically float64 from JSON) to uint16.
