@@ -110,9 +110,14 @@ func (s *ResourceCmdSubscriber) handleTap(ctx context.Context, resourceID string
 			s.injectSyntheticTap(resourceID, msg.Timestamp)
 		}
 
-	case resource != nil && (resource.Type == "complex" || resource.Type == "virtualDigitalInput"):
-		// complex/virtualDigitalInput: InputGestureEmitter ignores these types,
-		// so we need both synthetic state (for activated/deactivated) and explicit tapCommand.
+	case resource != nil && resource.Type == "complex":
+		// Complex resources own their state via computeFn — do NOT inject synthetic
+		// state (true→false) as it overwrites the computed value. Only forward tapCommand.
+		// onActivated/onDeactivated fire naturally from compute transitions.
+		s.forwardTapCommand(resourceID, msg)
+
+	case resource != nil && resource.Type == "virtualDigitalInput":
+		// virtualDigitalInput: needs synthetic state (for activated/deactivated) and explicit tapCommand.
 		s.injectSyntheticTap(resourceID, msg.Timestamp)
 		s.forwardTapCommand(resourceID, msg)
 
