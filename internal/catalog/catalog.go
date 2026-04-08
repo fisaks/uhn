@@ -13,6 +13,15 @@ type EdgeCatalogMessage struct {
 	Devices []DeviceSummary `json:"devices"`
 }
 
+type AdapterSummary struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // "ihc", "zigbee", "milight"
+}
+
+type EdgeAdaptersMessage struct {
+	Adapters []AdapterSummary `json:"adapters"`
+}
+
 // CatalogResource describes a single resource on a device.
 // ID is numeric for IHC (resource ID) and string for Z2M (property name).
 type CatalogResource struct {
@@ -128,6 +137,33 @@ func (catalog *Catalog) buildEdgeCatalog() *EdgeCatalogMessage {
 	catalog.zigbeeDevicesMu.RUnlock()
 
 	return &EdgeCatalogMessage{Devices: devices}
+}
+
+func (catalog *Catalog) buildAdapters() *EdgeAdaptersMessage {
+	var adapters []AdapterSummary
+	for _, ctrl := range catalog.cfg.IHCControllers {
+		adapters = append(adapters, AdapterSummary{Name: ctrl.Name, Type: "ihc"})
+	}
+	for _, z2m := range catalog.cfg.Zigbee {
+		adapters = append(adapters, AdapterSummary{Name: z2m.Name, Type: "zigbee"})
+	}
+	for _, ml := range catalog.cfg.Milights {
+		adapters = append(adapters, AdapterSummary{Name: ml.Host, Type: "milight"})
+	}
+	return &EdgeAdaptersMessage{Adapters: adapters}
+}
+
+// PublishAdapters publishes the adapter list as a retained message.
+func (catalog *Catalog) PublishAdapters(ctx context.Context) {
+	if catalog.broker == nil {
+		return
+	}
+	msg := catalog.buildAdapters()
+	if err := catalog.broker.PublishJSON(ctx, "adapters", messaging.AtLeastOnce, true, msg); err != nil {
+		logging.Error("Catalog: failed to publish adapters", "error", err)
+	} else {
+		logging.Info("Catalog: published adapters", "count", len(msg.Adapters))
+	}
 }
 
 func (catalog *Catalog) OnConnectPublish(ctx context.Context) (*messaging.ConnectMessage, error) {

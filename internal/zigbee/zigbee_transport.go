@@ -133,7 +133,7 @@ func (t *ZigbeeTransport) Start(ctx context.Context) {
 
 	t.broker.SubscribeRaw(ctx, base+"/bridge/state", messaging.AtLeastOnce, &z2mSubscriber{
 		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
-			t.handleZ2MBridgeState(payload)
+			t.handleZ2MBridgeState(ctx, payload)
 		},
 	})
 
@@ -516,7 +516,7 @@ func isOnOffEnum(values []string) bool {
 	return hasOn && hasOff
 }
 
-func (t *ZigbeeTransport) handleZ2MBridgeState(payload []byte) {
+func (t *ZigbeeTransport) handleZ2MBridgeState(ctx context.Context, payload []byte) {
 	// Bridge state can be plain text ("online"/"offline") or JSON
 	state := strings.TrimSpace(string(payload))
 
@@ -531,6 +531,11 @@ func (t *ZigbeeTransport) handleZ2MBridgeState(payload []byte) {
 	logging.Info("Zigbee: bridge state changed",
 		"adapter", t.cfg.Name,
 		"state", state)
+
+	// Publish bridge availability using the adapter name as device
+	if t.availPublisher != nil {
+		t.availPublisher.PublishDeviceAvailability(ctx, t.cfg.Name, state == "online")
+	}
 }
 
 // handleZ2MDeviceState processes a per-device state message from Z2M.

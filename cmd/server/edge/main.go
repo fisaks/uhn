@@ -171,6 +171,7 @@ func main() {
 		var zigbeeTransports []*zigbee.ZigbeeTransport
 		var z2mBrokers []messaging.Broker // per-adapter brokers to close on shutdown
 		edgeCatalog.SetBroker(edgeBroker)
+		edgeCatalog.PublishAdapters(ctx)
 		for _, z2mCfg := range cfg.Zigbee {
 			var z2mBroker messaging.Broker
 			if z2mCfg.Mqtt != "" {
