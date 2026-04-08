@@ -135,6 +135,7 @@ func main() {
 		}
 
 		// Create IHC drivers if configured
+		availPub := messaging.NewAvailabilityPublisher(edgeBroker)
 		drivers := make(map[string]uhn.DeviceDriver)
 		var ihcDrivers []*ihc.IHCDriver
 		for _, ihcCfg := range cfg.IHCControllers {
@@ -142,6 +143,7 @@ func main() {
 			// Enable dynamic resource subscription from ResourceMap
 			// (works alongside or instead of static config resources)
 			driver.SetResourceMapProvider(ipcBridge)
+			driver.SetAvailabilityPublisher(availPub)
 			drivers[ihcCfg.Name] = driver
 			ihcDrivers = append(ihcDrivers, driver)
 			logging.Info("IHC driver created",
@@ -175,6 +177,7 @@ func main() {
 				z2mBroker = messaging.NewBroker(messaging.BrokerConfig{
 					BrokerURL:        z2mCfg.Mqtt,
 					ClientName:       resolvedConfig.Name + "_" + z2mCfg.Name,
+					CleanSession:     true,
 					Username:         z2mCfg.MqttUsername,
 					Password:         z2mCfg.MqttPassword,
 					ConnectTimeout:   10 * time.Second,
@@ -190,6 +193,7 @@ func main() {
 				z2mBroker = edgeBroker
 			}
 			transport := zigbee.NewZigbeeTransport(z2mCfg, ipcBridge, ipcBridge, ipcBridge, z2mBroker)
+			transport.SetAvailabilityPublisher(availPub)
 			// Called after bridge/devices: register drivers + republish catalog
 			transport.SetOnDevicesDiscovered(func() {
 				// Register any new Z2M drivers

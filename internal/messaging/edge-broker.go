@@ -113,3 +113,27 @@ func (b *edgeBroker) onDeviceCommand(ctx context.Context, deviceName string, pay
 func (b *edgeBroker) ClearPublishedState() {
 	b.edgeState.Clear()
 }
+
+// edgeAvailabilityPublisher implements uhn.AvailabilityPublisher using an EdgeBroker.
+type edgeAvailabilityPublisher struct {
+	broker EdgeBroker
+}
+
+func NewAvailabilityPublisher(broker EdgeBroker) uhn.AvailabilityPublisher {
+	return &edgeAvailabilityPublisher{broker: broker}
+}
+
+func (p *edgeAvailabilityPublisher) PublishDeviceAvailability(ctx context.Context, device string, online bool) {
+	state := "offline"
+	if online {
+		state = "online"
+	}
+	topic := "device/" + device + "/availability"
+	if err := p.broker.Publish(ctx, topic, AtLeastOnce, true, []byte(state)); err != nil {
+		logging.Error("Failed to publish device availability",
+			"device", device, "state", state, "error", err)
+	} else {
+		logging.Info("Published device availability",
+			"device", device, "state", state)
+	}
+}

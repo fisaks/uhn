@@ -30,7 +30,7 @@ C = S !== undefined ? S : P
 |---|---|---|---|
 | `device/{name}/state` | Edge → Master | Modbus device-level state (byte arrays) | `DeviceStatePayload` |
 | `device/{name}/pin/{pin}` | Edge → Master | Per-pin physical state (IHC, Z2M). Pin in topic is hex for IHC (`0x9F085E`), literal string for Z2M (`temperature`). | `{ type, pin, value, timestamp }` |
-| `device/{name}/availability` | Edge → Master | Per-device online/offline (Z2M devices) | `"online"` or `"offline"` |
+| `device/{name}/availability` | Edge → Master | Per-device online/offline (Z2M devices, IHC controllers) | `"online"` or `"offline"` |
 | `device/{name}/cmd` | Master → Edge | Direct device commands (set output, toggle) | `{ action, address, value, ... }` |
 | `resource/state/{resourceId}` | Edge → Master | Logical resource state (timers, virtual) | `{ resourceId, value, timestamp, details? }` |
 | `resource/signal/{resourceId}` | Master → Edge | Signal override | `{ resourceId, value, timestamp }` |
@@ -158,7 +158,7 @@ ZigbeeDriver.SetOutput("state", false)
 ```
 
 **Device availability:**
-Z2M publishes `zigbee2mqtt/{device}/availability` → transport publishes to `device/{name}/availability` on UHN MQTT (retained). Only for config-listed devices.
+Z2M publishes `zigbee2mqtt/{device}/availability` → transport publishes to `device/{name}/availability` on UHN MQTT (retained). Only for config-listed devices. IHC drivers publish availability on connect (online) and disconnect/error (offline).
 
 ## Physical State: Mi-Light Flow (Assumed State)
 

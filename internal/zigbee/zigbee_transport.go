@@ -3,7 +3,6 @@ package zigbee
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -26,6 +25,7 @@ type ZigbeeTransport struct {
 	resourceLookup     uhn.ResourceLookup
 	actionEventEmitter uhn.ActionEventEmitter
 	broker             messaging.Broker
+	availPublisher     uhn.AvailabilityPublisher
 
 	// configDevices is the set of device names from the edge config.
 	// Only these devices are processed — state messages from unlisted
@@ -93,12 +93,12 @@ func NewZigbeeTransport(
 		resourceLookup:     resourceLookup,
 		actionEventEmitter: actionEventEmitter,
 		broker:             broker,
-		configDevices:  cfgDevices,
-		devices:        make(map[string]*z2mDevice),
-		lastValues:     make(map[string]any),
-		lastBlobs:      make(map[string][]byte),
-		drivers:        make(map[string]*ZigbeeDriver),
-		done:           make(chan struct{}),
+		configDevices:      cfgDevices,
+		devices:            make(map[string]*z2mDevice),
+		lastValues:         make(map[string]any),
+		lastBlobs:          make(map[string][]byte),
+		drivers:            make(map[string]*ZigbeeDriver),
+		done:               make(chan struct{}),
 	}
 }
 
@@ -107,6 +107,13 @@ func NewZigbeeTransport(
 // drivers (via GetDrivers()) and republish the catalog.
 func (t *ZigbeeTransport) SetOnDevicesDiscovered(fn func()) {
 	t.onDevicesDiscovered = fn
+}
+
+// SetAvailabilityPublisher sets the publisher used to report device online/offline
+// status to the edge MQTT broker. Required when the Z2M adapter uses a separate
+// MQTT connection — without it, availability publishes to the Z2M broker instead.
+func (t *ZigbeeTransport) SetAvailabilityPublisher(publisher uhn.AvailabilityPublisher) {
+	t.availPublisher = publisher
 }
 
 // Start begins the transport lifecycle. Blocks until ctx is cancelled.
@@ -130,6 +137,13 @@ func (t *ZigbeeTransport) Start(ctx context.Context) {
 		},
 	})
 
+	// Subscribe to availability: {baseTopic}/{friendlyName}/availability
+	t.broker.SubscribeRaw(ctx, base+"/+/availability", messaging.AtLeastOnce, &z2mSubscriber{
+		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
+			t.handleZ2MDeviceAvailability(ctx, topic, payload)
+		},
+	})
+
 	// Subscribe to all device state topics: {baseTopic}/+
 	// This catches {baseTopic}/{friendlyName} messages.
 	// We filter to known devices in the handler.
@@ -137,13 +151,6 @@ func (t *ZigbeeTransport) Start(ctx context.Context) {
 	t.broker.SubscribeRaw(ctx, base+"/+", messaging.AtLeastOnce, &z2mSubscriber{
 		handler: func(ctx context.Context, topic string, payload []byte, retained bool) {
 			t.handleZ2MDeviceState(ctx, topic, payload, retained)
-		},
-	})
-
-	// Subscribe to availability: {baseTopic}/{friendlyName}/availability
-	t.broker.SubscribeRaw(ctx, base+"/+/availability", messaging.AtLeastOnce, &z2mSubscriber{
-		handler: func(ctx context.Context, topic string, payload []byte, _ bool) {
-			t.handleZ2MDeviceAvailability(ctx, topic, payload)
 		},
 	})
 
@@ -559,9 +566,9 @@ func (t *ZigbeeTransport) handleZ2MDeviceState(ctx context.Context, topic string
 		return
 	}
 
-		// Parse the flat JSON blob
-		var blob map[string]any
-		if err := json.Unmarshal(payload, &blob); err != nil {
+	// Parse the flat JSON blob
+	var blob map[string]any
+	if err := json.Unmarshal(payload, &blob); err != nil {
 		logging.Warn("Zigbee: failed to parse device state",
 			"adapter", t.cfg.Name, "device", deviceName, "error", err)
 		return
@@ -743,16 +750,12 @@ func (t *ZigbeeTransport) handleZ2MDeviceAvailability(ctx context.Context, topic
 		state = stateObj.State
 	}
 
-	// Publish to UHN device availability topic (retained, config-listed devices only)
-	availTopic := fmt.Sprintf("device/%s/availability", deviceName)
-	availPayload := []byte(state)
-	if err := t.broker.Publish(ctx, availTopic, messaging.AtLeastOnce, true, availPayload); err != nil {
-		logging.Error("Zigbee: failed to publish device availability",
-			"adapter", t.cfg.Name, "device", deviceName, "error", err)
-	} else {
-		logging.Debug("Zigbee: device availability",
-			"adapter", t.cfg.Name, "device", deviceName, "state", state)
+	// Publish to UHN device availability topic via the edge broker
+	if t.availPublisher != nil {
+		t.availPublisher.PublishDeviceAvailability(ctx, deviceName, state == "online")
 	}
+	logging.Debug("Zigbee: device availability",
+		"adapter", t.cfg.Name, "device", deviceName, "state", state)
 }
 
 // --- Helpers ---

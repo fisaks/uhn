@@ -38,6 +38,9 @@ type IHCDriver struct {
 	// Dynamic resource provider (nil = use static config)
 	resourceMapProvider uhn.ResourceMapDeviceProvider
 
+	// Availability publisher (optional — publishes device online/offline to MQTT)
+	availPublisher uhn.AvailabilityPublisher
+
 	// Health-check canary
 	healthCheckIDs   []int
 	healthCheckSec   int
@@ -88,6 +91,17 @@ func NewIHCDriver(cfg *config.IHCControllerConfig, state uhn.StateUpdater) *IHCD
 // instead of (or in addition to) static config. Call before Start().
 func (d *IHCDriver) SetResourceMapProvider(provider uhn.ResourceMapDeviceProvider) {
 	d.resourceMapProvider = provider
+}
+
+// SetAvailabilityPublisher sets the publisher used to report device online/offline status.
+func (d *IHCDriver) SetAvailabilityPublisher(publisher uhn.AvailabilityPublisher) {
+	d.availPublisher = publisher
+}
+
+func (d *IHCDriver) publishAvailability(ctx context.Context, online bool) {
+	if d.availPublisher != nil {
+		d.availPublisher.PublishDeviceAvailability(ctx, d.cfg.Name, online)
+	}
 }
 
 // OnResourceMapReady is called when the blueprint's ResourceMap becomes available
@@ -248,8 +262,12 @@ func (d *IHCDriver) connectAndRun(ctx context.Context) error {
 		"controller", d.cfg.Name,
 		"resources", len(d.allResourceIDs))
 
+	d.publishAvailability(ctx, true)
+
 	// Run notification loop
-	return d.notificationLoop(ctx)
+	err = d.notificationLoop(ctx)
+	d.publishAvailability(ctx, false)
+	return err
 }
 
 // notificationLoop runs the long-poll wait loop and processes incoming values.

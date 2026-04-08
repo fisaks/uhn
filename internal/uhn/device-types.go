@@ -88,6 +88,12 @@ type ResourceMapDeviceProvider interface {
 	DeviceResourcesFromMap(device string) (map[int]string, bool)
 }
 
+// AvailabilityPublisher publishes device online/offline status to MQTT.
+// Used by drivers (e.g. IHC, Z2M) to report device-level availability.
+type AvailabilityPublisher interface {
+	PublishDeviceAvailability(ctx context.Context, device string, online bool)
+}
+
 // ActionEventEmitter forwards transient action events (e.g. Zigbee button presses) to the
 // rule runtime. Unlike state updates, action events bypass the P/S/C state model entirely.
 type ActionEventEmitter interface {
