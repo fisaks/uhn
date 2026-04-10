@@ -285,6 +285,10 @@
                 {
                     "name": "milight-toilet", "zone": 4, "model": "fut069",
                     "gatekeeper": { "device": "ihc2", "type": "digitalOutput", "pin": "0x7b495b" }
+                },
+                {
+                    "name": "milight-terrace", "zone": 3, "model": "fut069",
+                    "gatekeeper": { "device": "ihc2", "type": "digitalOutput", "pin": "0x9ee05b" }
                 }
             ]
         }
