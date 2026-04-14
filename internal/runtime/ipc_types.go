@@ -259,3 +259,22 @@ type MuteCommandPayload struct {
 	ExpiresAt  int64  `json:"expiresAt,omitempty"`
 	Identifier string `json:"identifier,omitempty"`
 }
+
+// ScheduleFiredMQTTPayload is the JSON payload published by master on "uhn/master/schedule/fired".
+type ScheduleFiredMQTTPayload struct {
+	ScheduleID string `json:"scheduleId"`
+	FiredAt    string `json:"firedAt"` // ISO date
+}
+
+// ScheduleEventCommand is the IPC command sent to the runtime when a schedule fires.
+type ScheduleEventCommand struct {
+	Kind    string               `json:"kind"` // "event"
+	Cmd     string               `json:"cmd"`  // "scheduleEvent"
+	Payload ScheduleEventPayload `json:"payload"`
+}
+
+// ScheduleEventPayload is the payload of a ScheduleEventCommand.
+type ScheduleEventPayload struct {
+	ScheduleID string `json:"scheduleId"`
+	FiredAt    string `json:"firedAt"`
+}

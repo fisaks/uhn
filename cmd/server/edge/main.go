@@ -120,6 +120,9 @@ func main() {
 		muteCmdSub := runtime.NewMuteCmdSubscriber(ipcBridge)
 		edgeBroker.Subscribe(ctx, "mute/cmd", messaging.AtLeastOnce, muteCmdSub)
 
+		scheduleEventSub := runtime.NewScheduleEventSubscriber(ipcBridge)
+		edgeBroker.SubscribeMaster(ctx, "schedule/fired", messaging.AtLeastOnce, scheduleEventSub)
+
 		// Subscribe to resource/state/+ to capture retained state for restoration on restart
 		logicalResourceStateSub := runtime.NewLogicalResourceStateSubscriber(signalTracker, edgeBroker)
 		logicalResourceStateSub.Subscribe(ctx)
