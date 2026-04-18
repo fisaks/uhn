@@ -30,8 +30,8 @@ func (s *ScheduleEventSubscriber) OnMessage(ctx context.Context, topic string, p
 		return
 	}
 
-	logging.Debug("ScheduleEventSubscriber: received schedule fired event",
-		"scheduleId", msg.ScheduleID, "firedAt", msg.FiredAt)
+	logging.Debug("ScheduleEventSubscriber: received schedule phase fired event",
+		"scheduleId", msg.ScheduleID, "phaseId", msg.PhaseID, "firedAt", msg.FiredAt)
 
 	// Forward to Node.js runtime via IPC
 	cmd := ScheduleEventCommand{
@@ -39,6 +39,7 @@ func (s *ScheduleEventSubscriber) OnMessage(ctx context.Context, topic string, p
 		Cmd:  "scheduleEvent",
 		Payload: ScheduleEventPayload{
 			ScheduleID: msg.ScheduleID,
+			PhaseID:    msg.PhaseID,
 			FiredAt:    msg.FiredAt,
 		},
 	}
