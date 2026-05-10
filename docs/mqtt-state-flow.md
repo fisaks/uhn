@@ -579,3 +579,20 @@ When adding a new hardware protocol:
 7. View tap/longPress will automatically use the correct strategy based on `BypassSignalState`
 8. For MQTT-based protocols (like Z2M): use `broker.SubscribeRaw()` / `broker.PublishRaw()` for topics outside the `uhn/{edge}/` namespace
 9. For devices with transient action events (buttons): implement `ActionEventEmitter` to emit events via IPC + MQTT `device/{name}/action/{pin}`. Filter retained messages to prevent stale actions on reconnect.
+
+---
+
+## Schedule Fired Event
+
+When a blueprint schedule phase fires on master, it publishes to MQTT so edge runtimes can trigger their local rules:
+
+```
+Topic:   uhn/master/schedule/fired
+Payload: { "scheduleId": "...", "phaseId": "...", "firedAt": "ISO date" }
+Retain:  false
+QoS:     1
+```
+
+The edge bridges this topic via mosquitto config and forwards the event to its local rule runtime via IPC (`scheduleEvent` command). This allows rules that reference schedule phases to run on the edge even though the timer fires on master.
+
+User schedules do NOT publish to this topic — they execute stored actions directly on master without involving the rule runtime.
