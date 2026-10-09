@@ -123,6 +123,9 @@ func main() {
 		scheduleEventSub := runtime.NewScheduleEventSubscriber(ipcBridge)
 		edgeBroker.SubscribeMaster(ctx, "schedule/fired", messaging.AtLeastOnce, scheduleEventSub)
 
+		electricityPriceSub := runtime.NewElectricityPriceSubscriber(ipcBridge)
+		edgeBroker.SubscribeMaster(ctx, "electricity/prices", messaging.AtLeastOnce, electricityPriceSub)
+
 		// Subscribe to resource/state/+ to capture retained state for restoration on restart
 		logicalResourceStateSub := runtime.NewLogicalResourceStateSubscriber(signalTracker, edgeBroker)
 		logicalResourceStateSub.Subscribe(ctx)
