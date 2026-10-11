@@ -596,3 +596,20 @@ QoS:     1
 The edge bridges this topic via mosquitto config and forwards the event to its local rule runtime via IPC (`scheduleEvent` command). This allows rules that reference schedule phases to run on the edge even though the timer fires on master.
 
 User schedules do NOT publish to this topic — they execute stored actions directly on master without involving the rule runtime.
+
+---
+
+## Electricity Prices
+
+The master fetches Finnish spot prices and publishes the whole snapshot (about 48 hours of 15-minute slots, snt/kWh incl. VAT) so edge runtimes can evaluate price rules locally:
+
+```
+Topic:   uhn/master/electricity/prices
+Payload: { "prices": [{ "price": 3.51, "startDate": "ISO", "endDate": "ISO" }, ...], "fetchedAt": "ISO date" }
+Retain:  true
+QoS:     1
+```
+
+The edge subscribes with `SubscribeMaster("electricity/prices", ...)` and forwards each snapshot to its rule runtime via IPC (`electricityPriceUpdate`). The last snapshot is kept and resent when the runtime becomes ready (`onReady`), so a restarted runtime does not wait for the next fetch.
+
+Every edge that connects through a local broker bridged to the master must list the topic in the bridge's topic list, like `uhn/master/schedule/fired` (in the repo: `mosquitto/config/mosquitto.conf`, `topic uhn/master/electricity/prices in 0`). Without the entry the edge never receives prices. An edge connected straight to the master's broker needs no bridge entry.
