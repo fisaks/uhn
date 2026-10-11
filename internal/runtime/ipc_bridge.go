@@ -50,6 +50,7 @@ type IPCBridge struct {
 	logicalResourceStatePublisher    *LogicalResourceStatePublisher
 	logicalResourceStateSubscriber   *LogicalResourceStateSubscriber
 	devicePinStatePublisher          *DevicePinStatePublisher
+	electricityPriceSubscriber       *ElectricityPriceSubscriber
 	onResourceMapReady               func(ctx context.Context) // called after ResourceMap is built
 
 	broker messaging.Broker
@@ -80,6 +81,12 @@ func (b *IPCBridge) SetLogicalResourceStatePublisher(pub *LogicalResourceStatePu
 // SetLogicalResourceStateSubscriber sets the subscriber used to restore logical resource state on restart.
 func (b *IPCBridge) SetLogicalResourceStateSubscriber(sub *LogicalResourceStateSubscriber) {
 	b.logicalResourceStateSubscriber = sub
+}
+
+// SetElectricityPriceSubscriber sets the electricity price subscriber whose last snapshot is
+// resent to the runtime when it becomes ready.
+func (b *IPCBridge) SetElectricityPriceSubscriber(sub *ElectricityPriceSubscriber) {
+	b.electricityPriceSubscriber = sub
 }
 
 // SetDevicePinStatePublisher sets the publisher for per-pin physical state MQTT messages.
@@ -180,6 +187,11 @@ func (b *IPCBridge) onReady(ctx context.Context) {
 	timerCommands := b.prepareTimerRestoration()
 
 	b.sendFullStateUpdate()
+
+	// A (re)started runtime has no electricity prices until the next fetch — resend the last snapshot
+	if b.electricityPriceSubscriber != nil {
+		b.electricityPriceSubscriber.Resend()
+	}
 
 	// Send timer restore commands AFTER full state update so the runtime
 	// has baseline state before timers start ticking
