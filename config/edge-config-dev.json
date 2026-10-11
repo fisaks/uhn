@@ -300,7 +300,8 @@
             "devices": [
                 { "name": "kitchen-temperature-display" },
                 { "name": "outdoor-temperature" },
-                { "name": "portable-socket-plug", "optimistic": false }
+                { "name": "portable-socket-plug", "optimistic": false },
+                { "name": "portable-button-panel" }
             ]
         }
     ],
