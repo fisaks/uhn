@@ -70,6 +70,7 @@ func main() {
 		BrokerURL:        resolvedConfig.MqttURL,
 		ClientName:       resolvedConfig.Name,
 		TopicPrefix:      topicPrefix,
+		CleanSession:     true,
 		Username:         resolvedConfig.MqttUser,
 		Password:         resolvedConfig.MqttPassword,
 		ConnectTimeout:   10 * time.Second,

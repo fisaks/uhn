@@ -75,18 +75,25 @@ type BrokerConfig struct {
 	SubscribeTimeout time.Duration
 }
 
+// subscriptionEntry is a confirmed subscription, kept so it can be re-established
+// after a reconnect (a clean session loses subscriptions on the broker).
+type subscriptionEntry struct {
+	qos     byte
+	handler mqtt.MessageHandler
+}
+
 type MsgBroker struct {
 	config              BrokerConfig
 	client              mqtt.Client
 	mu                  sync.RWMutex
-	subs                map[string]mqtt.Token
+	subs                map[string]subscriptionEntry
 	onConnectPublishers map[string]OnConnectPublisher
 }
 
 func NewBroker(cfg BrokerConfig) Broker {
 	return &MsgBroker{
 		config:              cfg,
-		subs:                make(map[string]mqtt.Token),
+		subs:                make(map[string]subscriptionEntry),
 		onConnectPublishers: make(map[string]OnConnectPublisher),
 	}
 }
@@ -137,6 +144,7 @@ func (b *MsgBroker) optionsFromConfig() *mqtt.ClientOptions {
 	}
 	opts.OnConnect = func(c mqtt.Client) {
 		logging.Info("MQTT connected", "clientName", b.config.ClientName)
+		b.resubscribe(c)
 		b.onConnectPublisher()
 	}
 	opts.OnReconnecting = func(c mqtt.Client, co *mqtt.ClientOptions) {
@@ -155,6 +163,35 @@ func (b *MsgBroker) RemoveOnConnectPublisher(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.onConnectPublishers, id)
+}
+
+// resubscribe re-establishes all confirmed subscriptions. It is a no-op on the
+// first connect (nothing subscribed yet) and required after every reconnect
+// when using a clean session, since the broker drops the subscriptions.
+func (b *MsgBroker) resubscribe(c mqtt.Client) {
+	b.mu.RLock()
+	subs := make(map[string]subscriptionEntry, len(b.subs))
+	for topic, sub := range b.subs {
+		subs[topic] = sub
+	}
+	b.mu.RUnlock()
+	if len(subs) == 0 {
+		return
+	}
+
+	timeout := b.config.SubscribeTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	failed := 0
+	for topic, sub := range subs {
+		token := c.Subscribe(topic, sub.qos, sub.handler)
+		if !token.WaitTimeout(timeout) || token.Error() != nil {
+			failed++
+			logging.Warn("MQTT resubscribe failed", "clientName", b.config.ClientName, "topic", topic, "error", token.Error())
+		}
+	}
+	logging.Info("MQTT resubscribed", "clientName", b.config.ClientName, "topics", len(subs), "failed", failed)
 }
 
 func (b *MsgBroker) onConnectPublisher() {
@@ -337,7 +374,7 @@ func (b *MsgBroker) subscribeRaw(ctx context.Context, fullTopic string, qos QoS,
 			return nil, err
 		}
 		b.mu.Lock()
-		b.subs[fullTopic] = token
+		b.subs[fullTopic] = subscriptionEntry{qos: byte(qos), handler: onMessageHandler}
 		b.mu.Unlock()
 		logging.Info("Subscribed to topic", "clientName", b.config.ClientName, "topic", fullTopic)
 		return &msgSubscription{broker: b, topic: fullTopic}, nil
@@ -356,6 +393,9 @@ type msgSubscription struct {
 
 func (s *msgSubscription) Unsubscribe(ctx context.Context) error {
 	b := s.broker
+	b.mu.Lock()
+	delete(b.subs, s.topic)
+	b.mu.Unlock()
 	token := b.client.Unsubscribe(s.topic)
 	timeout := 3 * time.Second
 	select {
