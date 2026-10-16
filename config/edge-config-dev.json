@@ -208,6 +208,11 @@
                 "name": "bathroom_io8_1",
                 "unitId": 6,
                 "type": "waveshare.io8"
+            },
+            {
+                "name": "outdoor_io8_1",
+                "unitId": 7,
+                "type": "waveshare.io8"
             }
         ],
         "bus_tcp": [
