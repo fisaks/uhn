@@ -580,6 +580,7 @@ func (b *IPCBridge) handleLogicalResourceStateChanged(ctx context.Context, raw [
 			ResourceID: state.ResourceID,
 			Value:      state.Value,
 			Timestamp:  timestamp,
+			Silent:     state.Silent,
 		})
 	}
 
