@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,6 +24,7 @@ func main() {
 	configPath := util.ParseSandboxConfigArgs(os.Args)
 	cfg, err := config.LoadSandboxConfig(configPath)
 	if err != nil {
+		logConfigLoadDiagnostics(configPath)
 		util.Fatal("uhn-sandboxd", "Failed to load sandbox config: %v", err)
 	}
 
@@ -29,6 +32,34 @@ func main() {
 		util.Fatal("uhn-sandboxd", "sandbox supervise failed: %v", err)
 	}
 }
+
+// The config file is bind-mounted into the sandbox root by uhn-sandbox-setup. When it
+// is missing we log what the sandbox actually sees, since the host side cannot show it.
+func logConfigLoadDiagnostics(configPath string) {
+	dir := filepath.Dir(configPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		util.Error("uhn-sandboxd", "diagnostics: cannot list %s: %v", dir, err)
+	} else {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		util.Error("uhn-sandboxd", "diagnostics: %s contains %v", dir, names)
+	}
+
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		util.Error("uhn-sandboxd", "diagnostics: cannot read mountinfo: %v", err)
+		return
+	}
+	for _, line := range strings.Split(string(mountInfo), "\n") {
+		if strings.Contains(line, "uhn") {
+			util.Error("uhn-sandboxd", "diagnostics: mount %s", line)
+		}
+	}
+}
+
 func supervise(cfg *config.SandboxConfig) error {
 
 	if err := setupSupervisor(); err != nil {
